@@ -23,12 +23,43 @@ export function resolveTTSProvider(): TTSProviderName {
   );
 }
 
+/**
+ * Rime's speed knob has two different names depending on the model, and the
+ * LiveKit Inference gateway *rejects* the wrong one (coda + `speed_alpha` fails
+ * mid-call with an opaque error). `coda` / `mistv3` use `time_scale_factor`;
+ * `mistv2` / `mist` use `speed_alpha`. Values >1 slow down, <1 speed up.
+ * Returns `undefined` (send nothing) unless RIME_SPEED is set, since 1.0 is a no-op.
+ */
+export function rimeSpeedOption(model: string): Record<string, number> | undefined {
+  const raw = process.env.RIME_SPEED;
+  if (raw === undefined || raw === '') return undefined;
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    throw new Error(`RIME_SPEED must be a number, got "${raw}".`);
+  }
+  const key = model === 'mistv2' || model === 'mist' ? 'speed_alpha' : 'time_scale_factor';
+  return { [key]: value };
+}
+
+/** Same idea as `rimeSpeedOption`, but with the direct plugin's camelCase option names. */
+function rimePluginSpeedOption(model: string): Record<string, number> {
+  const raw = process.env.RIME_SPEED;
+  if (raw === undefined || raw === '') return {};
+  const value = Number(raw);
+  if (!Number.isFinite(value)) {
+    throw new Error(`RIME_SPEED must be a number, got "${raw}".`);
+  }
+  const key = model === 'mistv2' || model === 'mist' ? 'speedAlpha' : 'timeScaleFactor';
+  return { [key]: value };
+}
+
 export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTSSelection {
   const voice = env('RIME_VOICE', 'celeste');
   const model = env('RIME_MODEL', 'coda');
 
   switch (provider) {
-    case 'rime':
+    case 'rime': {
+      const modelOptions = rimeSpeedOption(model);
       return {
         tts: new inference.TTS({
           model: `rime/${model}`,
@@ -37,11 +68,12 @@ export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTS
           // RimeOptions: max_tokens | time_scale_factor | speed_alpha |
           // pause_between_brackets | phonemize_between_brackets |
           // inline_speed_alpha | no_text_normalization
-          modelOptions: { speed_alpha: 1.0 },
+          ...(modelOptions ? { modelOptions } : {}),
         }),
         supportsExpressive: false,
         describe: `LiveKit Inference rime/${model}:${voice}`,
       };
+    }
 
     case 'rime-plugin': {
       const apiKey = process.env.RIME_API_KEY;
@@ -61,8 +93,9 @@ export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTS
           lang: env('RIME_LANGUAGE', 'en') === 'en' ? 'eng' : env('RIME_LANGUAGE', 'eng'),
           // Required for streaming synthesis + word-level timestamps.
           useWebsocket: true,
-          // NOTE: speedAlpha is ignored on coda; use timeScaleFactor there.
-          ...(model === 'coda' ? { timeScaleFactor: 1.0 } : { speedAlpha: 1.0 }),
+          // NOTE: speedAlpha is ignored on coda (use timeScaleFactor there); and
+          // timeScaleFactor throws on mistv2 (use speedAlpha there). Only sent if RIME_SPEED is set.
+          ...rimePluginSpeedOption(model),
         }),
         supportsExpressive: false,
         describe: `Rime plugin ${model}:${voice} (ws)`,

@@ -1,6 +1,6 @@
 import { initializeLogger } from '@livekit/agents';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { createTTS, resolveTTSProvider } from './tts.ts';
+import { createTTS, resolveTTSProvider, rimeSpeedOption } from './tts.ts';
 
 initializeLogger({ pretty: true, level: 'warn' });
 
@@ -11,6 +11,7 @@ const CLEARED_KEYS = [
   'RIME_VOICE',
   'RIME_LANGUAGE',
   'RIME_API_KEY',
+  'RIME_SPEED',
   'FISHAUDIO_VOICE',
 ] as const;
 
@@ -57,6 +58,29 @@ describe('resolveTTSProvider', () => {
   it('throws a helpful error on an unknown value', () => {
     process.env.TTS_PROVIDER = 'nonsense';
     expect(() => resolveTTSProvider()).toThrow(/Unknown TTS_PROVIDER "nonsense"/);
+  });
+});
+
+describe('rimeSpeedOption', () => {
+  it('sends nothing when RIME_SPEED is unset', () => {
+    expect(rimeSpeedOption('coda')).toBeUndefined();
+  });
+
+  it('routes to time_scale_factor for coda / mistv3', () => {
+    process.env.RIME_SPEED = '1.2';
+    expect(rimeSpeedOption('coda')).toEqual({ time_scale_factor: 1.2 });
+    expect(rimeSpeedOption('mistv3')).toEqual({ time_scale_factor: 1.2 });
+  });
+
+  it('routes to speed_alpha for mistv2 / mist', () => {
+    process.env.RIME_SPEED = '0.9';
+    expect(rimeSpeedOption('mistv2')).toEqual({ speed_alpha: 0.9 });
+    expect(rimeSpeedOption('mist')).toEqual({ speed_alpha: 0.9 });
+  });
+
+  it('throws on a non-numeric RIME_SPEED', () => {
+    process.env.RIME_SPEED = 'fast';
+    expect(() => rimeSpeedOption('coda')).toThrow(/RIME_SPEED must be a number/);
   });
 });
 
