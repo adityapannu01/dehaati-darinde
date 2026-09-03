@@ -11,7 +11,7 @@ The starter project includes:
 - A simple voice AI assistant, ready for extension and customization
 - A voice AI pipeline built on [LiveKit Inference](https://docs.livekit.io/agents/models/inference), providing zero-configuration access to [models](https://docs.livekit.io/agents/models) from top labs
   - Uses the fast, open-weight Gemma 4 31B model, [hosted by LiveKit](https://docs.livekit.io/agents/models/llm/livekit/) and tuned for optimal performance in voice AI, as the default LLM
-  - Uses Rime for TTS by default (via LiveKit Inference); swap engines with the `TTS_PROVIDER` env var (`rime` | `rime-plugin` | `fishaudio`). See `src/tts.ts` and `RIME_INTEGRATION_PLAN.md`
+  - Uses Rime for TTS by default (via LiveKit Inference); swap engines with the `TTS_PROVIDER` env var (`rime` | `rime-plugin` | `fishaudio`). See `src/tts.ts`
   - Supports more than 50 models from OpenAI, Cartesia, Deepgram, and other providers
   - Access to a wide range of other models, including [Realtime models](https://docs.livekit.io/agents/models/realtime), through extensive plugin ecosystem
 - Expressive mode: when the selected TTS provider supports inline delivery markup (Fish Audio, Cartesia, Inworld, xAI via LiveKit Inference), the framework injects the provider's markup guide into the LLM prompt so the model emits inline delivery tags (emotion, pacing, non-verbal sounds) that the TTS renders and the transcript never shows. Rime does not support markup, so expressive mode is off when `TTS_PROVIDER` is `rime` or `rime-plugin`

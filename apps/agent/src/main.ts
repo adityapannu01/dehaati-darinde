@@ -49,7 +49,7 @@ export default defineAgent({
       // Expressive mode injects the TTS provider's markup guide into the LLM prompt so the model
       // emits inline delivery tags that the TTS renders and the transcript strips. Only
       // cartesia/fishaudio/inworld/xai support it via inference.TTS; Rime does not, so this is
-      // wired to the selected provider (see §1.4 of RIME_INTEGRATION_PLAN.md and src/tts.ts).
+      // wired to the selected provider by the factory in src/tts.ts.
       expressive: supportsExpressive,
     });
 
