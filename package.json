@@ -1,10 +1,12 @@
 {
-  "name": "kitchen-sink",
+  "name": "dehaati-darinde",
   "private": true,
   "scripts": {
     "build": "turbo run build",
     "clean": "turbo run clean",
     "dev": "turbo run dev",
+    "dev:agent": "turbo run dev --filter=DD_agent",
+    "dev:web": "turbo run dev --filter=web",
     "format": "prettier --write \"**/*.{ts,tsx,md}\"",
     "lint": "turbo run lint",
     "test": "turbo run test",
