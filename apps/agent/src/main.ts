@@ -5,6 +5,7 @@ import dotenv from 'dotenv';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { createAgent } from './agent.ts';
+import { createTTS } from './tts.ts';
 
 // Load environment variables from a local file.
 // Make sure to set LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET
@@ -13,7 +14,11 @@ dotenv.config({ path: '.env.local' });
 
 export default defineAgent({
   entry: async (ctx) => {
-    // Set up a voice AI pipeline using AssemblyAI, Fish Audio, and the LiveKit turn detector
+    // Pick the TTS engine (Rime by default) from TTS_PROVIDER. See src/tts.ts.
+    const { tts, supportsExpressive, describe } = createTTS();
+    logger.info(`[DD_agent] TTS: ${describe}`);
+
+    // Set up a voice AI pipeline using AssemblyAI, the selected TTS, and the LiveKit turn detector
     const session = new voice.AgentSession({
       // Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
       // See all available models at https://docs.livekit.io/agents/models/stt/
@@ -22,12 +27,10 @@ export default defineAgent({
         language: 'en',
       }),
 
-      // Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear
+      // Text-to-speech (TTS) is your agent's voice, turning the LLM's text into speech that the user can hear.
+      // The engine is chosen in src/tts.ts based on the TTS_PROVIDER env var (default: Rime).
       // See all available models as well as voice selections at https://docs.livekit.io/agents/models/tts/
-      tts: new inference.TTS({
-        model: 'fishaudio/s2.1-pro',
-        voice: 'fa4c9eb3dccc4806b382b40d61c6b10a',
-      }),
+      tts,
 
       turnHandling: {
         // Turn detection determines when the user is speaking and when the agent should respond.
@@ -43,11 +46,11 @@ export default defineAgent({
         preemptiveGeneration: { enabled: true },
       },
 
-      // Expressive mode injects the TTS provider's markup guide into the LLM prompt, so the model
-      // emits inline delivery tags (emotion, pacing, non-verbal sounds) that the TTS renders and
-      // the transcript never shows. Requires a TTS model that supports markup, such as the Fish
-      // Audio model above.
-      expressive: true,
+      // Expressive mode injects the TTS provider's markup guide into the LLM prompt so the model
+      // emits inline delivery tags that the TTS renders and the transcript strips. Only
+      // cartesia/fishaudio/inworld/xai support it via inference.TTS; Rime does not, so this is
+      // wired to the selected provider (see §1.4 of RIME_INTEGRATION_PLAN.md and src/tts.ts).
+      expressive: supportsExpressive,
     });
 
     // Start the session, which initializes the voice pipeline and warms up the models
