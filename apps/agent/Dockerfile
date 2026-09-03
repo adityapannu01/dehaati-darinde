@@ -1,79 +1,87 @@
 # syntax=docker/dockerfile:1
+#
+# Monorepo-aware build for the DD_agent LiveKit Agents worker.
+#
+#   IMPORTANT: the build context is the REPO ROOT, not apps/agent.
+#   Build locally with:
+#       docker build -f apps/agent/Dockerfile -t dd-agent .
+#   `lk agent deploy` / LiveKit Cloud must likewise use the repo root as context.
+#
+# The agent depends on the `@repo/logger` workspace package, and the pnpm
+# lockfile lives at the repo root, so a single-package build can't work. This
+# uses `turbo prune` to carve out a minimal subset (DD_agent + its workspace
+# deps + the root lockfile), then installs and builds that.
 
-# Use the official Node.js v24 base image
-# We use the slim variant to keep the image size smaller while still having essential tools
 ARG NODE_VERSION=24
-FROM node:${NODE_VERSION}-slim AS base
 
-# Configure pnpm installation directory and ensure it is on PATH
+# ---------------------------------------------------------------------------
+# base — common tooling. Node >= 22.18 is required for native TS type stripping
+# (the agent runs `node src/main.ts` directly, no compile step).
+# ---------------------------------------------------------------------------
+FROM node:${NODE_VERSION}-slim AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
-ENV HOME="/app"
+# ca-certificates: the LiveKit native core reads the system trust store at runtime.
+RUN apt-get update -qq \
+    && apt-get install --no-install-recommends -y ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+# Pin pnpm to the version in the root package.json `packageManager` field.
+RUN npm install -g pnpm@8.15.6
 
-# Install ca-certificates (the system CA bundle used for TLS), then clean
-# the apt cache. Required by the LiveKit SDK: the native Rust core reads
-# the system trust store at runtime, which the slim base image doesn't ship.
-# --no-install-recommends keeps the image minimal.
-RUN apt-get update -qq && apt-get install --no-install-recommends -y ca-certificates && rm -rf /var/lib/apt/lists/*
+# ---------------------------------------------------------------------------
+# prune — produce a focused subset of the monorepo for DD_agent.
+# `out/json`  = package.json files only (for a cacheable install layer)
+# `out/full`  = full source of DD_agent + its workspace deps
+# `out/pnpm-lock.yaml` = pruned lockfile
+# ---------------------------------------------------------------------------
+FROM base AS prune
+RUN npm install -g turbo@^2
+WORKDIR /repo
+COPY . .
+RUN turbo prune DD_agent --docker
 
-# Pin pnpm version for reproducible builds
-RUN npm install -g pnpm@10
-
-# --- Build stage ---
-# Install dependencies, build the project, and prepare production assets
+# ---------------------------------------------------------------------------
+# build — install deps, build workspace deps, pre-fetch models, prune to prod.
+# ---------------------------------------------------------------------------
 FROM base AS build
+WORKDIR /repo
 
-# Create a new directory for our application code
-# And set it as the working directory
-WORKDIR /app
-
-# Copy just the dependency files first, for more efficient layer caching
-COPY package.json pnpm-lock.yaml ./
-
-# Install dependencies using pnpm
-# --frozen-lockfile ensures we use exact versions from pnpm-lock.yaml for reproducible builds
+# 1. Install against the manifests + lockfile only, so this layer is cached
+#    until a dependency actually changes.
+COPY --from=prune /repo/out/json/ ./
+COPY --from=prune /repo/out/pnpm-lock.yaml ./pnpm-lock.yaml
 RUN pnpm install --frozen-lockfile
 
-# Pre-download any ML models or files the agent needs
-# This runs before COPY . . so the download layer is cached across code-only changes.
-# The standalone CLI discovers installed @livekit/agents-plugin-* packages without
-# loading your agent code.
-RUN npx livekit-agents download-files
+# 2. Bring in the pruned source and build the workspace deps the agent imports
+#    (`@repo/logger` compiles to dist/ via bunchee; the agent itself is not compiled).
+COPY --from=prune /repo/out/full/ ./
+RUN pnpm --filter=@repo/logger build
 
-# Copy all remaining application files into the container
-# This includes source code, configuration files, and dependency specifications
-# (Excludes files specified in .dockerignore)
-COPY . .
+# 3. Pre-download ML models for any installed @livekit/agents-plugin-* packages
+#    (turn detector, etc.). The standalone CLI finds them without loading agent code.
+RUN cd apps/agent && npx livekit-agents download-files
 
-# Remove dev dependencies for a leaner production image
-RUN pnpm prune --prod
+# 4. Reinstall without dev dependencies for a lean runtime image.
+#    `@repo/logger`'s built dist/ lives in the source tree and survives this.
+RUN pnpm install --frozen-lockfile --prod
 
-# --- Production stage ---
+# ---------------------------------------------------------------------------
+# runtime — non-root, production.
+# ---------------------------------------------------------------------------
 FROM base
-
-# Create a non-privileged user that the app will run under
-# See https://docs.docker.com/build/building/best-practices/#user
 ARG UID=10001
-RUN adduser \
-    --disabled-password \
-    --gecos "" \
-    --home "/app" \
-    --shell "/sbin/nologin" \
-    --uid "${UID}" \
-    appuser
+RUN adduser --disabled-password --gecos "" --home "/app" --shell "/sbin/nologin" --uid "${UID}" appuser
 
 WORKDIR /app
-
-# Copy the built application with correct ownership in a single layer
-# This avoids expensive recursive chown operations on node_modules
-COPY --from=build --chown=appuser:appuser /app /app
+COPY --from=build --chown=appuser:appuser /repo /app
+# Model cache written by `download-files`.
+COPY --from=build --chown=appuser:appuser /root/.cache /app/.cache
 
 USER appuser
-
-# Set Node.js to production mode
 ENV NODE_ENV=production
+ENV HOME=/app
+ENV XDG_CACHE_HOME=/app/.cache
 
-# Run the application
-# The "start" command tells the worker to connect to LiveKit and begin waiting for jobs.
-# Your package.json must contain a "start" script, such as `"start": "node src/main.ts start"`
-CMD [ "pnpm", "start" ]
+WORKDIR /app/apps/agent
+# `start` = `node src/main.ts start` — connect to LiveKit and wait for jobs.
+CMD ["pnpm", "start"]

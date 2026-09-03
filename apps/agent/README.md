@@ -19,7 +19,7 @@ The starter project includes:
 - [LiveKit Turn Detector](https://docs.livekit.io/agents/logic/turns/turn-detector/), an end-of-turn model that listens to the user's audio directly, combining semantic understanding with acoustic cues for state-of-the-art accuracy across 14 languages
 - [Background voice cancellation](https://docs.livekit.io/transport/media/noise-cancellation/)
 - Deep session insights from LiveKit [Agent Observability](https://docs.livekit.io/deploy/observability/)
-- A Dockerfile ready for [production deployment to LiveKit Cloud](https://docs.livekit.io/deploy/agents/)
+- A monorepo-aware Dockerfile for [production deployment to LiveKit Cloud](https://docs.livekit.io/deploy/agents/) (build from the repo root — see [Deploying to production](#deploying-to-production))
 
 This starter app is compatible with any [custom web/mobile frontend](https://docs.livekit.io/frontends/) or [telephony](https://docs.livekit.io/telephony/).
 
@@ -136,7 +136,29 @@ Once you've started your own project based on this repo, you should:
 
 ## Deploying to production
 
-This project is production-ready and includes a working `Dockerfile`. To deploy it to LiveKit Cloud or another environment, see the [deploying to production](https://docs.livekit.io/deploy/agents/) guide.
+To deploy this agent to LiveKit Cloud or another environment, see the [deploying to production](https://docs.livekit.io/deploy/agents/) guide.
+
+### Build context
+
+`apps/agent/Dockerfile` is **monorepo-aware and must be built from the repo root**, because the agent depends on the `@repo/logger` workspace package and the pnpm lockfile lives at the root:
+
+```bash
+docker build -f apps/agent/Dockerfile -t dd-agent .
+```
+
+It uses `turbo prune` to isolate the agent and its workspace dependencies, then installs, builds `@repo/logger`, pre-downloads plugin model files, and drops dev dependencies. Configure `lk agent deploy` / LiveKit Cloud to use the repo root as the build context.
+
+### Required environment variables in production
+
+`dotenv` only loads `.env.local` (not committed), so set these wherever the worker runs:
+
+| Variable | Notes |
+|---|---|
+| `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Always required |
+| `AGENT_NAME` | Must match the frontend's dispatch name (`DD_agent`) |
+| `TTS_PROVIDER` | `rime` (default), `rime-plugin`, or `fishaudio` |
+| `RIME_MODEL`, `RIME_VOICE`, `RIME_LANGUAGE`, `RIME_SPEED` | Optional Rime tuning (see `.env.example`) |
+| `RIME_API_KEY` | **Only** when `TTS_PROVIDER=rime-plugin` |
 
 ## Self-hosted LiveKit
 

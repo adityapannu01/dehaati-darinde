@@ -1,0 +1,20 @@
+# Build context is the repo root (see apps/agent/Dockerfile). Keep it lean.
+**/node_modules
+**/.git
+**/dist
+**/build
+**/coverage
+**/.next
+**/.turbo
+**/*.log
+**/.DS_Store
+**/.env
+**/.env.*
+!**/.env.example
+**/*.test.ts
+**/*.spec.ts
+.claude/
+.codex/
+.cursor/
+.vscode/
+.idea/
