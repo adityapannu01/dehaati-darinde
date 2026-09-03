@@ -33,6 +33,7 @@
   },
   "dependencies": {
     "@livekit/agents": "^1.6.3",
+    "@livekit/agents-plugin-rime": "^1.7.1",
     "@livekit/plugins-ai-coustics": "^0.2.14",
     "@livekit/rtc-node": "^0.13.31",
     "@repo/logger": "workspace:*",
