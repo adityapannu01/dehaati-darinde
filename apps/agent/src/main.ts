@@ -40,11 +40,10 @@ export default defineAgent({
     const commitGate = new CommitGate({ canvas, staging, ledger, baselineMode });
     const slowMs = Number(env('SLOW_TOOL_MS', '5000'));
 
-    // TODO(commit-gate wiring): a proper generation opens per user turn via
-    // session.on(UserInputTranscribed, ...) — see the plan's Phase 3. Until
-    // that lands, open one placeholder generation so tool calls made before
-    // that wiring exists don't all fence themselves out as stale.
+    // Bootstrap generation 1 for the initial greeting below, which has no
+    // preceding user turn to open one via UserInputTranscribed.
     gm.start('');
+    commitGate.startGeneration();
 
     // Set up a voice AI pipeline using AssemblyAI, the selected TTS, and the LiveKit turn detector
     const session = new voice.AgentSession({
@@ -90,6 +89,48 @@ export default defineAgent({
         // Works for both WebRTC and telephony (SIP) participants
         noiseCancellation: audioEnhancement({ model: 'quailVfS' }),
       },
+    });
+
+    // Generational Conversation Control: fence the previous turn and open a
+    // new generation the instant the user's final transcript lands.
+    //
+    // Ordering caveat (verified empirically — do not assume otherwise):
+    // UserInputTranscribed(isFinal) and ConversationItemAdded for the
+    // interrupted assistant message are NOT guaranteed to arrive in a fixed
+    // order. Reading gm.currentId lazily inside the ConversationItemAdded
+    // handler would sometimes read the *new* generation instead of the one
+    // that was actually interrupted. pendingInterruptGeneration is captured
+    // synchronously before gm advances, and is a safe fallback either way:
+    // if ConversationItemAdded fires first, gm.currentId is still the old
+    // (correct) generation; if UserInputTranscribed fires first, the stashed
+    // value is used instead.
+    let pendingInterruptGeneration: number | null = null;
+
+    session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
+      if (!ev.isFinal) return;
+      pendingInterruptGeneration = gm.currentId;
+      gm.cancelCurrent();
+      const g = gm.start(ev.transcript);
+      commitGate.startGeneration();
+      ledger.push('generation_started', g.id, ev.transcript);
+    });
+
+    session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {
+      const item = ev.item;
+      if (item.type !== 'message' || item.role !== 'assistant') return;
+      const heard = item.textContent ?? '';
+      if (item.interrupted) {
+        const gen = pendingInterruptGeneration ?? gm.currentId;
+        pendingInterruptGeneration = null;
+        commitGate.onInterrupted(gen);
+        ledger.push('speech_interrupted', gen, heard);
+      } else {
+        commitGate.onTurnComplete(gm.currentId);
+      }
+    });
+
+    session.on(voice.AgentSessionEventTypes.AgentFalseInterruption, () => {
+      ledger.push('speech_started', gm.currentId, 'false interruption ignored');
     });
 
     // // Add a virtual avatar to the session, if desired
