@@ -14,7 +14,8 @@
     "test": "vitest --run",
     "test:watch": "vitest",
     "dev": "node src/main.ts dev",
-    "start": "node src/main.ts start"
+    "start": "node src/main.ts start",
+    "benchmark": "node src/bench/report.ts"
   },
   "engines": {
     "node": ">=18.0.0"
