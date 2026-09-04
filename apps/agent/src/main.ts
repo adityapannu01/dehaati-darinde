@@ -8,8 +8,10 @@ import { createAgent } from './agent.ts';
 import { CanvasStore } from './core/canvas.ts';
 import { CommitGate } from './core/commit-gate.ts';
 import { GenerationManager } from './core/generation.ts';
+import type { LedgerEvent } from '@repo/protocol';
 import { EventLedger } from './core/ledger.ts';
 import { StagingBuffer } from './core/staging.ts';
+import { CanvasPublisher } from './transport/publisher.ts';
 import { createTTS } from './tts.ts';
 
 // Load environment variables from a local file.
@@ -44,6 +46,59 @@ export default defineAgent({
     // preceding user turn to open one via UserInputTranscribed.
     gm.start('');
     commitGate.startGeneration();
+
+    // Transport to the browser: constructed once the room is connected
+    // (below), so the ledger buffers/drops nothing said before that ever
+    // fires this hook — see setOnPush.
+    let publisher: CanvasPublisher | undefined = undefined;
+    let speaking = false;
+    let toolsInFlight = 0;
+    let eventBuffer: LedgerEvent[] = [];
+    let flushTimer: ReturnType<typeof setTimeout> | undefined;
+    const EVENT_FLUSH_MS = 50;
+
+    function pushStatus(): void {
+      void publisher?.send({
+        kind: 'status',
+        generation: gm.currentId,
+        ttsProvider: describe,
+        baselineMode,
+        speaking,
+        toolRunning: toolsInFlight > 0,
+        heardText: commitGate.heardText,
+      });
+    }
+
+    ledger.setOnPush((event) => {
+      // Coalesce a burst of events (e.g. several mutations committed off one
+      // sentence) into a single packet instead of one send per event.
+      eventBuffer.push(event);
+      if (!flushTimer) {
+        flushTimer = setTimeout(() => {
+          const events = eventBuffer;
+          eventBuffer = [];
+          flushTimer = undefined;
+          void publisher?.send({ kind: 'events', events });
+        }, EVENT_FLUSH_MS);
+      }
+
+      if (event.type === 'mutation_committed') {
+        void publisher?.send({ kind: 'snapshot', snapshot: canvas.snapshot(event.generation) });
+      }
+      if (event.type === 'tool_started') {
+        toolsInFlight += 1;
+        pushStatus();
+      } else if (
+        event.type === 'tool_completed' ||
+        event.type === 'tool_aborted' ||
+        event.type === 'tool_stale_discarded'
+      ) {
+        toolsInFlight = Math.max(0, toolsInFlight - 1);
+        pushStatus();
+      } else if (event.type === 'generation_started' || event.type === 'speech_interrupted') {
+        pushStatus();
+      }
+    });
 
     // Set up a voice AI pipeline using AssemblyAI, the selected TTS, and the LiveKit turn detector
     const session = new voice.AgentSession({
@@ -133,6 +188,11 @@ export default defineAgent({
       ledger.push('speech_started', gm.currentId, 'false interruption ignored');
     });
 
+    session.on(voice.AgentSessionEventTypes.AgentStateChanged, (ev) => {
+      speaking = ev.newState === 'speaking';
+      pushStatus();
+    });
+
     // // Add a virtual avatar to the session, if desired
     // // For other providers, see https://docs.livekit.io/agents/models/avatar/
     // const avatar = new anam.AvatarSession({
@@ -147,6 +207,12 @@ export default defineAgent({
     // Join the room and connect to the user
     await ctx.connect();
     logger.info(`[DD_agent] Connected to room: ${ctx.room.name}`);
+
+    // Now that the room is connected, the browser can receive the initial
+    // canvas/status state and every subsequent mutation/event as it happens.
+    publisher = new CanvasPublisher(ctx.room);
+    void publisher.send({ kind: 'snapshot', snapshot: canvas.snapshot(gm.currentId) });
+    pushStatus();
 
     // Greet the user on joining
     session.generateReply({

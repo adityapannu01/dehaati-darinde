@@ -14,6 +14,11 @@ export class EventLedger {
     this.onPush = opts?.onPush;
   }
 
+  /** Attach or replace the push hook after construction (e.g. once the transport is ready). */
+  setOnPush(onPush: ((event: LedgerEvent) => void) | undefined): void {
+    this.onPush = onPush;
+  }
+
   push(type: LedgerEventType, generation: number, detail?: string): LedgerEvent {
     this.seq += 1;
     const event: LedgerEvent = {

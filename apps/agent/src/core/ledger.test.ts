@@ -36,4 +36,15 @@ describe('EventLedger', () => {
     ledger.push('generation_cancelled', 1);
     expect(pushed).toEqual(['generation_started', 'generation_cancelled']);
   });
+
+  it('setOnPush attaches/replaces the hook after construction', () => {
+    const pushed: string[] = [];
+    const ledger = new EventLedger();
+    ledger.push('generation_started', 1); // before any hook is attached
+    ledger.setOnPush((e) => pushed.push(e.type));
+    ledger.push('generation_cancelled', 1);
+    ledger.setOnPush(undefined);
+    ledger.push('tool_started', 1);
+    expect(pushed).toEqual(['generation_cancelled']);
+  });
 });

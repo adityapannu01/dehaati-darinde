@@ -55,6 +55,11 @@ export class CommitGate {
     this.tracker.reset();
   }
 
+  /** Everything confirmed delivered so far in the current generation — shown in the HUD. */
+  get heardText(): string {
+    return this.tracker.deliveredText;
+  }
+
   /** Feed a word off the transcription stream tap (see canvas-agent.ts). */
   onWord(generation: number, word: SpokenWord): void {
     if (this.baselineMode) return;
