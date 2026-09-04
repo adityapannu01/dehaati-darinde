@@ -5,6 +5,10 @@ import dotenv from 'dotenv';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { createAgent } from './agent.ts';
+import { CanvasStore } from './core/canvas.ts';
+import { GenerationManager } from './core/generation.ts';
+import { EventLedger } from './core/ledger.ts';
+import { StagingBuffer } from './core/staging.ts';
 import { createTTS } from './tts.ts';
 
 // Load environment variables from a local file.
@@ -12,11 +16,33 @@ import { createTTS } from './tts.ts';
 // when running locally or self-hosting your agent server.
 dotenv.config({ path: '.env.local' });
 
+function env(name: string, fallback: string): string {
+  const v = process.env[name];
+  return v === undefined || v === '' ? fallback : v;
+}
+
 export default defineAgent({
   entry: async (ctx) => {
     // Pick the TTS engine (Rime by default) from TTS_PROVIDER. See src/tts.ts.
     const { tts, supportsExpressive, describe } = createTTS();
     logger.info(`[DD_agent] TTS: ${describe}`);
+
+    // Core Cartograph engine: generation fencing, staged mutations, the
+    // canvas itself, and the event ledger the browser will stream. See
+    // src/core/**. Baseline mode disables fencing for the naive-agent
+    // comparison the benchmark reports.
+    const baselineMode = env('CARTOGRAPH_BASELINE', 'false').toLowerCase() === 'true';
+    const gm = new GenerationManager({ baselineMode });
+    const staging = new StagingBuffer();
+    const ledger = new EventLedger();
+    const canvas = new CanvasStore();
+    const slowMs = Number(env('SLOW_TOOL_MS', '5000'));
+
+    // TODO(commit-gate wiring): a proper generation opens per user turn via
+    // session.on(UserInputTranscribed, ...) — see the plan's Phase 3. Until
+    // that lands, open one placeholder generation so tool calls made before
+    // that wiring exists don't all fence themselves out as stale.
+    gm.start('');
 
     // Set up a voice AI pipeline using AssemblyAI, the selected TTS, and the LiveKit turn detector
     const session = new voice.AgentSession({
@@ -55,7 +81,7 @@ export default defineAgent({
 
     // Start the session, which initializes the voice pipeline and warms up the models
     await session.start({
-      agent: createAgent(),
+      agent: createAgent({ gm, staging, ledger, canvas, slowMs }),
       room: ctx.room,
       inputOptions: {
         // ai-coustics QUAIL audio enhancement for noise cancellation
