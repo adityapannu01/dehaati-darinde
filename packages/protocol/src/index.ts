@@ -78,6 +78,10 @@ export type ServerMessage =
       speaking: boolean;
       toolRunning: boolean;
       heardText: string;
+      /** Every word actually delivered as audio so far, incl. an in-flight sentence. */
+      spokenText: string;
+      /** Generated text beyond spokenText — not yet heard. Empty, never wrong, if the two can't be reconciled. */
+      pendingText: string;
     };
 
 export const CARTOGRAPH_TOPIC = 'cartograph';

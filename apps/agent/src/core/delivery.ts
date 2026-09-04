@@ -42,6 +42,17 @@ export class DeliveryTracker {
     return this.confirmed;
   }
 
+  /**
+   * Every word actually delivered as audio, including an unterminated
+   * trailing sentence — for display only (the "heard/pending" strip).
+   * CommitGate must keep using `deliveredText`, not this: an in-flight
+   * sentence hasn't cleared the commit bar yet even though its words have
+   * already played.
+   */
+  get spokenText(): string {
+    return this.confirmed + this.pendingTail;
+  }
+
   get sentenceCount(): number {
     return this.deliveredSentences;
   }

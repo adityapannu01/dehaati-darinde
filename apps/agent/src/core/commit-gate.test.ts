@@ -102,4 +102,35 @@ describe('CommitGate', () => {
     const committedEvent = ledger.all().find((e) => e.type === 'mutation_committed');
     expect(committedEvent?.detail).not.toContain('anchor_mismatch');
   });
+
+  it('pendingText is the generated text beyond what has been spoken', () => {
+    const { gate } = build();
+    gate.startGeneration();
+    gate.onGeneratedChunk("Adding Redis. Now wiring it to the gateway.");
+
+    let i = 0;
+    for (const w of SENTENCE_1) gate.onWord(1, word(w, i++)); // only "Adding Redis." spoken so far
+
+    expect(gate.spokenText).toBe('Adding Redis.');
+    expect(gate.pendingText).toBe('Now wiring it to the gateway.');
+  });
+
+  it('pendingText is empty when the spoken prefix does not match the generated text', () => {
+    const { gate } = build();
+    gate.startGeneration();
+    gate.onGeneratedChunk('Something completely different.');
+
+    let i = 0;
+    for (const w of SENTENCE_1) gate.onWord(1, word(w, i++));
+
+    expect(gate.pendingText).toBe('');
+  });
+
+  it('startGeneration() resets the generated-text accumulator', () => {
+    const { gate } = build();
+    gate.startGeneration();
+    gate.onGeneratedChunk('Leftover from generation 1.');
+    gate.startGeneration();
+    expect(gate.pendingText).toBe('');
+  });
 });

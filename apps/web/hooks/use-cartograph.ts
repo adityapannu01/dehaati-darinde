@@ -20,6 +20,8 @@ export interface CartographStatus {
   speaking: boolean;
   toolRunning: boolean;
   heardText: string;
+  spokenText: string;
+  pendingText: string;
 }
 
 export interface UseCartographReturn {
@@ -82,6 +84,8 @@ export function useCartograph(): UseCartographReturn {
             speaking: msg.speaking,
             toolRunning: msg.toolRunning,
             heardText: msg.heardText,
+            spokenText: msg.spokenText,
+            pendingText: msg.pendingText,
           });
           break;
       }

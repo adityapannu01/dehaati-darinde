@@ -1,4 +1,5 @@
 import { type ModelSettings, voice } from '@livekit/agents';
+import type { AudioFrame } from '@livekit/rtc-node';
 import { ReadableStream, TransformStream } from 'node:stream/web';
 
 export interface SpokenWord {
@@ -8,21 +9,32 @@ export interface SpokenWord {
 }
 
 /**
- * Taps the transcription stream to observe Rime's word-level timestamps
- * (TimedString) as they flow past, without altering what reaches the
- * transcript. This is the only way to feed CommitGate real delivery
- * evidence — see docs on DeliveryTracker / CommitGate.
+ * Taps two points in the pipeline:
+ *   - transcriptionNode: Rime's word-level timestamps (TimedString) as audio
+ *     is actually delivered — the only source of real delivery evidence, fed
+ *     into CommitGate (see DeliveryTracker / CommitGate).
+ *   - ttsNode: the generated text on its way INTO the TTS, ahead of audio —
+ *     what the heard/pending sentence strip (spoken-line.tsx) ghosts in as
+ *     "not yet heard" text.
+ * Neither tap alters what reaches its downstream node.
  *
  * Needs `node:stream/web`'s ReadableStream/TransformStream, not the DOM
  * globals: the SDK's stream signatures don't structurally match those.
  */
 export class CanvasAgent extends voice.Agent {
   private onSpokenWord: (w: SpokenWord) => void;
+  private onGeneratedChunk: (text: string) => void;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- matches Agent's own default UserData = any
-  constructor(opts: voice.AgentOptions<any>, onSpokenWord: (w: SpokenWord) => void) {
+  constructor(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- matches Agent's own default UserData = any
+    opts: voice.AgentOptions<any>,
+    onSpokenWord: (w: SpokenWord) => void,
+    onGeneratedChunk: (text: string) => void,
+  ) {
     super(opts);
-    this.onSpokenWord = onSpokenWord; // NOT a parameter property — erasableSyntaxOnly
+    // NOT parameter properties — erasableSyntaxOnly forbids them.
+    this.onSpokenWord = onSpokenWord;
+    this.onGeneratedChunk = onGeneratedChunk;
   }
 
   override async transcriptionNode(
@@ -49,5 +61,29 @@ export class CanvasAgent extends voice.Agent {
           });
 
     return voice.Agent.default.transcriptionNode(this, source.pipeThrough(tap), modelSettings);
+  }
+
+  override async ttsNode(
+    text: ReadableStream<string> | AsyncIterable<string>,
+    modelSettings: ModelSettings,
+  ): Promise<ReadableStream<AudioFrame> | null> {
+    const tap = new TransformStream<string, string>({
+      transform: (chunk, controller) => {
+        this.onGeneratedChunk(chunk);
+        controller.enqueue(chunk);
+      },
+    });
+
+    const source =
+      text instanceof ReadableStream
+        ? (text as ReadableStream<string>)
+        : new ReadableStream<string>({
+            async start(controller) {
+              for await (const c of text as AsyncIterable<string>) controller.enqueue(c);
+              controller.close();
+            },
+          });
+
+    return voice.Agent.default.ttsNode(this, source.pipeThrough(tap), modelSettings);
   }
 }

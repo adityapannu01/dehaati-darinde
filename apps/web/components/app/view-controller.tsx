@@ -9,6 +9,7 @@ import { WelcomeView } from '@/components/app/welcome-view';
 import { ArchitectureCanvas } from '@/components/cartograph/architecture-canvas';
 import { EventLedger } from '@/components/cartograph/event-ledger';
 import { GenerationHud } from '@/components/cartograph/generation-hud';
+import { SpokenLine } from '@/components/cartograph/spoken-line';
 import { useCartograph } from '@/hooks/use-cartograph';
 
 const MotionWelcomeView = motion.create(WelcomeView);
@@ -57,6 +58,12 @@ export function ViewController({ appConfig }: ViewControllerProps) {
       {isConnected && (
         <motion.div key="session-view" {...VIEW_MOTION_PROPS} className="fixed inset-0">
           <ArchitectureCanvas nodes={nodes} edges={edges} className="absolute inset-0" />
+          <SpokenLine
+            spokenText={status?.spokenText ?? ''}
+            pendingText={status?.pendingText ?? ''}
+            events={events}
+            className="fixed top-20 left-1/2 z-20 w-full max-w-2xl -translate-x-1/2 px-4"
+          />
           <GenerationHud status={status} className="fixed top-4 right-4 z-20" />
           <EventLedger events={events} className="fixed right-4 bottom-24 z-20" />
           <AgentSessionView_01

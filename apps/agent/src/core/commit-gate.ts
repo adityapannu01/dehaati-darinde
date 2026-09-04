@@ -18,12 +18,19 @@ export interface CommitGateOptions {
  * here (instead of touching StagingBuffer directly) so baselineMode has one
  * place to live: skip the gate entirely and commit at stage time.
  */
+function normalizeWhitespace(s: string): string {
+  return s.replace(/\s+/g, ' ').trim();
+}
+
 export class CommitGate {
   private canvas: CanvasStore;
   private staging: StagingBuffer;
   private ledger: EventLedger;
   private baselineMode: boolean;
   private tracker = new DeliveryTracker();
+  // Text tapped off the TTS input side (CanvasAgent.ttsNode) — ahead of audio,
+  // unlike tracker.spokenText which only advances as words are actually heard.
+  private generatedText = '';
 
   constructor(opts: CommitGateOptions) {
     this.canvas = opts.canvas;
@@ -53,11 +60,36 @@ export class CommitGate {
   /** Call once per new generation, before its speech starts. */
   startGeneration(): void {
     this.tracker.reset();
+    this.generatedText = '';
+  }
+
+  /** Feed a chunk off the TTS-input tap (see canvas-agent.ts's ttsNode override). */
+  onGeneratedChunk(text: string): void {
+    this.generatedText += text;
   }
 
   /** Everything confirmed delivered so far in the current generation — shown in the HUD. */
   get heardText(): string {
     return this.tracker.deliveredText;
+  }
+
+  /** Everything actually spoken, including an in-flight unterminated sentence — for display only. */
+  get spokenText(): string {
+    return this.tracker.spokenText;
+  }
+
+  /**
+   * Generated text beyond what's been spoken — "not yet heard". Never
+   * claims text that doesn't actually match what's coming: if the generated
+   * accumulator doesn't start with the spoken prefix (a resync glitch,
+   * stream reordering, whatever), this returns '' rather than guess. Showing
+   * nothing is correct; showing the wrong ghost text is a false claim on screen.
+   */
+  get pendingText(): string {
+    const generated = normalizeWhitespace(this.generatedText);
+    const spoken = normalizeWhitespace(this.tracker.spokenText);
+    if (!generated.startsWith(spoken)) return '';
+    return generated.slice(spoken.length).trimStart();
   }
 
   /** Feed a word off the transcription stream tap (see canvas-agent.ts). */

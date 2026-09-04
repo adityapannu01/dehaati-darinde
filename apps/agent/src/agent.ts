@@ -72,5 +72,6 @@ export function createAgent(deps: CanvasToolsDeps) {
       }
       deps.commitGate.onWord(gen, word);
     },
+    (chunk) => deps.commitGate.onGeneratedChunk(chunk),
   );
 }

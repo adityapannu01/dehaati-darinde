@@ -38,4 +38,17 @@ describe('DeliveryTracker', () => {
     expect(tracker.sentenceCount).toBe(0);
     expect(tracker.deliveredText).toBe('');
   });
+
+  it('spokenText includes the in-flight unterminated sentence; deliveredText does not', () => {
+    const tracker = new DeliveryTracker();
+    for (let i = 0; i < 6; i++) tracker.push(timed(WORDS[i] as string, i)); // through "wiring", sentence 2 not closed
+    expect(tracker.deliveredText).toBe('Adding a Redis cache.');
+    expect(tracker.spokenText).toBe('Adding a Redis cache. Now wiring');
+  });
+
+  it('spokenText equals deliveredText once every sentence is closed', () => {
+    const tracker = new DeliveryTracker();
+    WORDS.forEach((w, i) => tracker.push(timed(w, i)));
+    expect(tracker.spokenText).toBe(tracker.deliveredText);
+  });
 });

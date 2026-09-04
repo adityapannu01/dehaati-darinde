@@ -66,6 +66,8 @@ export default defineAgent({
         speaking,
         toolRunning: toolsInFlight > 0,
         heardText: commitGate.heardText,
+        spokenText: commitGate.spokenText,
+        pendingText: commitGate.pendingText,
       });
     }
 
