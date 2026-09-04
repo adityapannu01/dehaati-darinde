@@ -165,6 +165,8 @@ export default defineAgent({
       if (!ev.isFinal) return;
       pendingInterruptGeneration = gm.currentId;
       gm.cancelCurrent();
+      // Live latency measurement (see bench/live-latency.md): interruption -> fenced.
+      logger.info(`[latency] generation_cancelled t=${Date.now()}`);
       const g = gm.start(ev.transcript);
       commitGate.startGeneration();
       ledger.push('generation_started', g.id, ev.transcript);
@@ -191,6 +193,13 @@ export default defineAgent({
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, (ev) => {
       speaking = ev.newState === 'speaking';
       pushStatus();
+    });
+
+    session.on(voice.AgentSessionEventTypes.UserStateChanged, (ev) => {
+      if (ev.newState === 'speaking') {
+        // Live latency measurement (see bench/live-latency.md): user speech start.
+        logger.info(`[latency] user_speech_start t=${Date.now()}`);
+      }
     });
 
     // // Add a virtual avatar to the session, if desired

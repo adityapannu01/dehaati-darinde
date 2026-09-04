@@ -13,6 +13,7 @@ import { type CanvasToolsDeps, createCanvasTools } from './tools/canvas-tools.ts
 // Agent.create) so it can tap the transcription stream for Rime's
 // word-level timestamps and feed them straight into the commit gate.
 export function createAgent(deps: CanvasToolsDeps) {
+  let lastLoggedAudioGeneration = 0;
   return new CanvasAgent(
     {
       instructions: dedent`
@@ -63,7 +64,13 @@ export function createAgent(deps: CanvasToolsDeps) {
       logger.debug(
         `[Cartograph] word: "${word.text}" start=${word.startTime} end=${word.endTime}`,
       );
-      deps.commitGate.onWord(deps.gm.currentId, word);
+      const gen = deps.gm.currentId;
+      if (gen !== lastLoggedAudioGeneration) {
+        lastLoggedAudioGeneration = gen;
+        // Live latency measurement (see bench/live-latency.md): first audio of a new turn.
+        logger.info(`[latency] first_audio_frame gen=${gen} t=${Date.now()}`);
+      }
+      deps.commitGate.onWord(gen, word);
     },
   );
 }
