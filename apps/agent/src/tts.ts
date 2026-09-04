@@ -1,12 +1,15 @@
 import { type tts as ttsTypes, inference } from '@livekit/agents';
 import * as rime from '@livekit/agents-plugin-rime';
 
-export type TTSProviderName = 'rime' | 'rime-plugin' | 'fishaudio';
+export type TTSProviderName = 'rime-plugin' | 'rime' | 'fishaudio';
 
 export interface TTSSelection {
   tts: ttsTypes.TTS;
   /** Expressive markup only exists for cartesia/fishaudio/inworld/xai via inference.TTS. */
   supportsExpressive: boolean;
+  /** Word-level timestamps — required by the commit gate. Only the WebSocket plugin has them. */
+  hasWordTimestamps: boolean;
+  /** Shown in the UI: the active speech provider must be observable, not just documented. */
   describe: string;
 }
 
@@ -16,10 +19,10 @@ function env(name: string, fallback: string): string {
 }
 
 export function resolveTTSProvider(): TTSProviderName {
-  const raw = env('TTS_PROVIDER', 'rime').toLowerCase();
-  if (raw === 'rime' || raw === 'rime-plugin' || raw === 'fishaudio') return raw;
+  const raw = env('TTS_PROVIDER', 'rime-plugin').toLowerCase();
+  if (raw === 'rime-plugin' || raw === 'rime' || raw === 'fishaudio') return raw;
   throw new Error(
-    `Unknown TTS_PROVIDER "${raw}". Expected one of: rime, rime-plugin, fishaudio.`,
+    `Unknown TTS_PROVIDER "${raw}". Expected one of: rime-plugin, rime, fishaudio.`,
   );
 }
 
@@ -53,28 +56,16 @@ function rimePluginSpeedOption(model: string): Record<string, number> {
   return { [key]: value };
 }
 
+// The plugin uses 3-letter codes (RIME_LANGUAGE's native format); the Inference
+// gateway wants 2-letter ISO codes. Map the ones the plugin's DefaultLanguages covers.
+const THREE_TO_TWO_LETTER: Record<string, string> = { eng: 'en', spa: 'es', fra: 'fr', ger: 'de' };
+
 export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTSSelection {
   const voice = env('RIME_VOICE', 'celeste');
   const model = env('RIME_MODEL', 'coda');
+  const language3 = env('RIME_LANGUAGE', 'eng');
 
   switch (provider) {
-    case 'rime': {
-      const modelOptions = rimeSpeedOption(model);
-      return {
-        tts: new inference.TTS({
-          model: `rime/${model}`,
-          voice,
-          language: env('RIME_LANGUAGE', 'en'),
-          // RimeOptions: max_tokens | time_scale_factor | speed_alpha |
-          // pause_between_brackets | phonemize_between_brackets |
-          // inline_speed_alpha | no_text_normalization
-          ...(modelOptions ? { modelOptions } : {}),
-        }),
-        supportsExpressive: false,
-        describe: `LiveKit Inference rime/${model}:${voice}`,
-      };
-    }
-
     case 'rime-plugin': {
       const apiKey = process.env.RIME_API_KEY;
       if (!apiKey) {
@@ -89,16 +80,35 @@ export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTS
           apiKey,
           modelId: model,
           speaker: voice,
-          // Plugin uses 3-letter codes: eng | spa | fra | ger
-          lang: env('RIME_LANGUAGE', 'en') === 'en' ? 'eng' : env('RIME_LANGUAGE', 'eng'),
-          // Required for streaming synthesis + word-level timestamps.
+          lang: language3,
+          // REQUIRED: without this, synthesis is non-streaming chunked and
+          // alignedTranscript is false — the commit gate has nothing to key off.
           useWebsocket: true,
           // NOTE: speedAlpha is ignored on coda (use timeScaleFactor there); and
           // timeScaleFactor throws on mistv2 (use speedAlpha there). Only sent if RIME_SPEED is set.
           ...rimePluginSpeedOption(model),
         }),
         supportsExpressive: false,
-        describe: `Rime plugin ${model}:${voice} (ws)`,
+        hasWordTimestamps: true,
+        describe: `Rime ${model}:${voice} (WebSocket, PCM 24kHz mono)`,
+      };
+    }
+
+    case 'rime': {
+      const modelOptions = rimeSpeedOption(model);
+      return {
+        tts: new inference.TTS({
+          model: `rime/${model}`,
+          voice,
+          language: THREE_TO_TWO_LETTER[language3] ?? language3,
+          // RimeOptions: max_tokens | time_scale_factor | speed_alpha |
+          // pause_between_brackets | phonemize_between_brackets |
+          // inline_speed_alpha | no_text_normalization
+          ...(modelOptions ? { modelOptions } : {}),
+        }),
+        supportsExpressive: false,
+        hasWordTimestamps: false,
+        describe: `Rime ${model}:${voice} (LiveKit Inference — no word timestamps)`,
       };
     }
 
@@ -109,7 +119,8 @@ export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTS
           voice: env('FISHAUDIO_VOICE', 'fa4c9eb3dccc4806b382b40d61c6b10a'),
         }),
         supportsExpressive: true,
-        describe: 'LiveKit Inference fishaudio/s2.1-pro',
+        hasWordTimestamps: false,
+        describe: 'Fish Audio s2.1-pro (pre-Rime baseline)',
       };
   }
 }
