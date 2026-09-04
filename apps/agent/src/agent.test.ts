@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import { afterEach, beforeEach, describe, it } from 'vitest';
 import { createAgent } from './agent.ts';
 import { CanvasStore } from './core/canvas.ts';
+import { CommitGate } from './core/commit-gate.ts';
 import { GenerationManager } from './core/generation.ts';
 import { EventLedger } from './core/ledger.ts';
 import { StagingBuffer } from './core/staging.ts';
@@ -25,12 +26,15 @@ describe('agent evaluation', () => {
     // commit gate; simulate "a turn is active" here so tool calls in these
     // evals don't fence themselves out as stale.
     gm.start('eval turn');
+    const canvas = new CanvasStore();
+    const staging = new StagingBuffer();
+    const ledger = new EventLedger();
     await session.start({
       agent: createAgent({
         gm,
-        staging: new StagingBuffer(),
-        ledger: new EventLedger(),
-        canvas: new CanvasStore(),
+        commitGate: new CommitGate({ canvas, staging, ledger }),
+        ledger,
+        canvas,
         slowMs: 0,
       }),
     });

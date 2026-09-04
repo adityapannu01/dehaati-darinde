@@ -2,14 +2,14 @@ import { tool } from '@livekit/agents';
 import type { NodeKind } from '@repo/protocol';
 import { z } from 'zod';
 import type { CanvasStore } from '../core/canvas.ts';
+import type { CommitGate } from '../core/commit-gate.ts';
 import type { GenerationManager } from '../core/generation.ts';
 import type { EventLedger } from '../core/ledger.ts';
-import type { StagingBuffer } from '../core/staging.ts';
 import { slowWork } from './slow.ts';
 
 export interface CanvasToolsDeps {
   gm: GenerationManager;
-  staging: StagingBuffer;
+  commitGate: CommitGate;
   ledger: EventLedger;
   canvas: CanvasStore;
   slowMs: number;
@@ -28,7 +28,7 @@ const nodeKindSchema = z.enum(['service', 'datastore', 'queue', 'gateway', 'exte
 /**
  * Builds the read-only/reversible tools the agent can call to edit the
  * canvas (brainstorm §26: no purchases, deletes, or emails — only diagram
- * edits, and even those never touch the canvas directly; see StagingBuffer).
+ * edits, and even those never touch the canvas directly; CommitGate.stage() is what the tools call).
  *
  * Every mutating tool follows the same fencing contract:
  *   1. snapshot the generation the call belongs to
@@ -69,11 +69,10 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
         return 'STALE_DISCARDED: this instruction was superseded. Do not mention this result.';
       }
       const { x, y } = deps.canvas.nextLayout();
-      const staged = deps.staging.stage(gen, nextSentenceIndex(gen), label, {
+      deps.commitGate.stage(gen, nextSentenceIndex(gen), label, {
         op: 'addNode',
         node: { id: slug(label), label, kind: kind as NodeKind, x, y },
       });
-      deps.ledger.push('mutation_staged', gen, staged.id);
       deps.ledger.push('tool_completed', gen, `addService(${label})`);
       return `Staged: ${label} will appear once you have said so.`;
     },
@@ -103,11 +102,10 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
       }
       const sourceId = slug(sourceLabel);
       const targetId = slug(targetLabel);
-      const staged = deps.staging.stage(gen, nextSentenceIndex(gen), targetLabel, {
+      deps.commitGate.stage(gen, nextSentenceIndex(gen), targetLabel, {
         op: 'addEdge',
         edge: { id: `${sourceId}-${targetId}`, source: sourceId, target: targetId, label },
       });
-      deps.ledger.push('mutation_staged', gen, staged.id);
       deps.ledger.push('tool_completed', gen, `connectServices(${anchor})`);
       return `Staged: connection ${anchor} will appear once you have said so.`;
     },
@@ -136,13 +134,12 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
         deps.ledger.push('tool_stale_discarded', gen, `replaceComponent(${anchor})`);
         return 'STALE_DISCARDED: this instruction was superseded. Do not mention this result.';
       }
-      const staged = deps.staging.stage(gen, nextSentenceIndex(gen), newLabel, {
+      deps.commitGate.stage(gen, nextSentenceIndex(gen), newLabel, {
         op: 'replaceNode',
         nodeId: slug(targetLabel),
         label: newLabel,
         kind: kind as NodeKind,
       });
-      deps.ledger.push('mutation_staged', gen, staged.id);
       deps.ledger.push('tool_completed', gen, `replaceComponent(${anchor})`);
       return `Staged: ${targetLabel} will become ${newLabel} once you have said so.`;
     },
@@ -165,12 +162,11 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
         deps.ledger.push('tool_stale_discarded', gen, `renameComponent(${targetLabel})`);
         return 'STALE_DISCARDED: this instruction was superseded. Do not mention this result.';
       }
-      const staged = deps.staging.stage(gen, nextSentenceIndex(gen), newLabel, {
+      deps.commitGate.stage(gen, nextSentenceIndex(gen), newLabel, {
         op: 'renameNode',
         nodeId: slug(targetLabel),
         label: newLabel,
       });
-      deps.ledger.push('mutation_staged', gen, staged.id);
       return `Staged: rename to ${newLabel} once you have said so.`;
     },
   });
@@ -187,11 +183,10 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
         deps.ledger.push('tool_stale_discarded', gen, `removeComponent(${targetLabel})`);
         return 'STALE_DISCARDED: this instruction was superseded. Do not mention this result.';
       }
-      const staged = deps.staging.stage(gen, nextSentenceIndex(gen), targetLabel, {
+      deps.commitGate.stage(gen, nextSentenceIndex(gen), targetLabel, {
         op: 'removeNode',
         nodeId: slug(targetLabel),
       });
-      deps.ledger.push('mutation_staged', gen, staged.id);
       return `Staged: removal of ${targetLabel} once you have said so.`;
     },
   });

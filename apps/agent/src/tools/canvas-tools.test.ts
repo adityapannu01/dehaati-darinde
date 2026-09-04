@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CanvasStore } from '../core/canvas.ts';
+import { CommitGate } from '../core/commit-gate.ts';
 import { GenerationManager } from '../core/generation.ts';
 import { EventLedger } from '../core/ledger.ts';
 import { StagingBuffer } from '../core/staging.ts';
@@ -10,7 +11,8 @@ function setup(slowMs = 20) {
   const staging = new StagingBuffer();
   const ledger = new EventLedger();
   const canvas = new CanvasStore();
-  const tools = createCanvasTools({ gm, staging, ledger, canvas, slowMs });
+  const commitGate = new CommitGate({ canvas, staging, ledger });
+  const tools = createCanvasTools({ gm, commitGate, ledger, canvas, slowMs });
   const addService = tools.find((t) => t.name === 'addService');
   if (!addService || addService.type !== 'function') throw new Error('addService not found');
   return { gm, staging, ledger, canvas, addService };

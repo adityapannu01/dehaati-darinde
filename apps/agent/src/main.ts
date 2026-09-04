@@ -6,6 +6,7 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 import { createAgent } from './agent.ts';
 import { CanvasStore } from './core/canvas.ts';
+import { CommitGate } from './core/commit-gate.ts';
 import { GenerationManager } from './core/generation.ts';
 import { EventLedger } from './core/ledger.ts';
 import { StagingBuffer } from './core/staging.ts';
@@ -36,6 +37,7 @@ export default defineAgent({
     const staging = new StagingBuffer();
     const ledger = new EventLedger();
     const canvas = new CanvasStore();
+    const commitGate = new CommitGate({ canvas, staging, ledger, baselineMode });
     const slowMs = Number(env('SLOW_TOOL_MS', '5000'));
 
     // TODO(commit-gate wiring): a proper generation opens per user turn via
@@ -81,7 +83,7 @@ export default defineAgent({
 
     // Start the session, which initializes the voice pipeline and warms up the models
     await session.start({
-      agent: createAgent({ gm, staging, ledger, canvas, slowMs }),
+      agent: createAgent({ gm, commitGate, ledger, canvas, slowMs }),
       room: ctx.room,
       inputOptions: {
         // ai-coustics QUAIL audio enhancement for noise cancellation
