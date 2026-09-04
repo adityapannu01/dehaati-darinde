@@ -2,16 +2,16 @@
   <img src="./.github/assets/livekit-mark.png" alt="LiveKit logo" width="100" height="100">
 </a>
 
-# LiveKit Agents Starter - Node.js
+# DD_agent — Cartograph voice agent
 
-A complete starter project for building voice AI apps with [LiveKit Agents for Node.js](https://github.com/livekit/agents-js) and [LiveKit Cloud](https://cloud.livekit.io/).
+The LiveKit Agents worker for **Cartograph**, a voice-commanded collaborative architecture canvas. See the [repo root README](../../README.md) for the full product disclosure (Rime config, architecture, benchmark, limitations); this file covers the underlying LiveKit Agents Node.js starter this worker is built on.
 
 The starter project includes:
 
 - A simple voice AI assistant, ready for extension and customization
 - A voice AI pipeline built on [LiveKit Inference](https://docs.livekit.io/agents/models/inference), providing zero-configuration access to [models](https://docs.livekit.io/agents/models) from top labs
   - Uses the fast, open-weight Gemma 4 31B model, [hosted by LiveKit](https://docs.livekit.io/agents/models/llm/livekit/) and tuned for optimal performance in voice AI, as the default LLM
-  - Uses Rime for TTS by default (via LiveKit Inference); swap engines with the `TTS_PROVIDER` env var (`rime` | `rime-plugin` | `fishaudio`). See `src/tts.ts`
+  - Uses Rime for TTS by default, over the direct WebSocket plugin (word-level timestamps, required by the commit gate); swap engines with the `TTS_PROVIDER` env var (`rime-plugin` | `rime` | `fishaudio`). See `src/tts.ts`
   - Supports more than 50 models from OpenAI, Cartesia, Deepgram, and other providers
   - Access to a wide range of other models, including [Realtime models](https://docs.livekit.io/agents/models/realtime), through extensive plugin ecosystem
 - Expressive mode: when the selected TTS provider supports inline delivery markup (Fish Audio, Cartesia, Inworld, xAI via LiveKit Inference), the framework injects the provider's markup guide into the LLM prompt so the model emits inline delivery tags (emotion, pacing, non-verbal sounds) that the TTS renders and the transcript never shows. Rime does not support markup, so expressive mode is off when `TTS_PROVIDER` is `rime` or `rime-plugin`

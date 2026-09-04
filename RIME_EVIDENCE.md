@@ -50,3 +50,16 @@ Live interruption/recovery latency (fence latency, recovery latency): **not yet 
 - 45 generated scenarios + 1 hand-scripted out-of-order case are not a production traffic distribution — they exercise the specific race the commit gate closes, not general robustness. The generator matrix is parametric (`apps/agent/src/bench/scenarios.ts`) rather than 100 hand-authored scripts, trading raw scenario count for higher confidence that each generated case is actually correct.
 - Single-room scale; no multi-agent handoffs, telephony, or multilingual routing.
 - Live interruption/recovery latency has not yet been measured — see §4.
+
+## Demo script (4-5 minutes)
+
+Not code — rehearse against it before presenting.
+
+| Time | Beat |
+|---|---|
+| 0:00-0:30 | Target user + problem: engineers mapping a system by voice, live. |
+| 0:30-1:20 | Normal flow: speak three services, watch them land sentence by sentence. |
+| 1:20-2:30 | **Stress case.** `SLOW_TOOL_MS=5000`. Say "add a Redis cache and connect it to the API gateway," interrupt on the second sentence with "wait, make that MongoDB." Show: audio cuts, the un-narrated edge never appears, the event ledger turns red, the 5-second-late tool result arrives and is rejected. |
+| 2:30-3:10 | Same script with `CARTOGRAPH_BASELINE=true` — the ghost node/edge appears. Side by side against the fenced run. |
+| 3:10-3:40 | `pnpm --filter DD_agent benchmark` output on screen — real numbers, not a slide. |
+| 3:40-4:20 | Rime's role: WebSocket streaming, word timestamps, and the fact that they're what drives the commit gate. Show the disclosure table in `README.md`. |
