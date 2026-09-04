@@ -37,6 +37,20 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* Cartograph state palette — how a mutation/generation is doing right now. */
+  --state-committed: oklch(0.78 0.15 210); /* accepted, live */
+  --state-staged: oklch(0.62 0.02 250); /* pending, not yet heard */
+  --state-stale: oklch(0.66 0.2 25); /* fenced, rejected */
+  --state-cancelled: oklch(0.78 0.15 75); /* generation retired */
+  --state-baseline: oklch(0.6 0.24 20); /* baseline-mode chrome */
+
+  /* Cartograph kind palette — what a node is. */
+  --kind-service: oklch(0.75 0.14 235);
+  --kind-datastore: oklch(0.78 0.16 70);
+  --kind-queue: oklch(0.72 0.16 300);
+  --kind-gateway: oklch(0.79 0.14 165);
+  --kind-external: oklch(0.7 0.03 250);
 }
 
 .dark {
@@ -71,6 +85,19 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.439 0 0);
+
+  /* Cartograph state/kind palette — same meaning as :root, tuned to stay legible on a dark ground. */
+  --state-committed: oklch(0.78 0.15 210);
+  --state-staged: oklch(0.62 0.02 250);
+  --state-stale: oklch(0.66 0.2 25);
+  --state-cancelled: oklch(0.78 0.15 75);
+  --state-baseline: oklch(0.6 0.24 20);
+
+  --kind-service: oklch(0.75 0.14 235);
+  --kind-datastore: oklch(0.78 0.16 70);
+  --kind-queue: oklch(0.72 0.16 300);
+  --kind-gateway: oklch(0.79 0.14 165);
+  --kind-external: oklch(0.7 0.03 250);
 }
 
 @theme inline {
@@ -112,6 +139,18 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-state-committed: var(--state-committed);
+  --color-state-staged: var(--state-staged);
+  --color-state-stale: var(--state-stale);
+  --color-state-cancelled: var(--state-cancelled);
+  --color-state-baseline: var(--state-baseline);
+
+  --color-kind-service: var(--kind-service);
+  --color-kind-datastore: var(--kind-datastore);
+  --color-kind-queue: var(--kind-queue);
+  --color-kind-gateway: var(--kind-gateway);
+  --color-kind-external: var(--kind-external);
 }
 
 @layer base {

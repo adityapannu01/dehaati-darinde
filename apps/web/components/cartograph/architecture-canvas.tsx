@@ -6,12 +6,14 @@ import { Background, Controls, type Edge, type Node, ReactFlow } from '@xyflow/r
 import '@xyflow/react/dist/style.css';
 import { cn } from '@/lib/shadcn/utils';
 
+// Kind -> hue, sourced from the theme (styles/globals.css --kind-*) so the
+// canvas, HUD, and any future surface stay in sync with one definition.
 const KIND_COLORS: Record<NodeKind, string> = {
-  service: '#38bdf8',
-  datastore: '#f59e0b',
-  queue: '#a78bfa',
-  gateway: '#34d399',
-  external: '#94a3b8',
+  service: 'var(--kind-service)',
+  datastore: 'var(--kind-datastore)',
+  queue: 'var(--kind-queue)',
+  gateway: 'var(--kind-gateway)',
+  external: 'var(--kind-external)',
 };
 
 const HIGHLIGHT_MS = 1200;
@@ -70,7 +72,9 @@ export function ArchitectureCanvas({ nodes, edges, className }: ArchitectureCanv
             fontSize: 13,
             background: 'var(--card)',
             color: 'var(--card-foreground)',
-            boxShadow: justArrived.has(n.id) ? `0 0 0 4px ${color}66` : undefined,
+            boxShadow: justArrived.has(n.id)
+              ? `0 0 0 4px color-mix(in oklch, ${color} 40%, transparent)`
+              : undefined,
             transition: 'box-shadow 0.6s ease-out',
           },
         };
