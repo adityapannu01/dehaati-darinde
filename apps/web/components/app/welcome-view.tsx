@@ -1,7 +1,12 @@
 import { motion } from 'motion/react';
 import BlurText from '@/components/BlurText';
+import { EvidencePanel } from '@/components/cartograph/story/evidence-panel';
+import { MechanismPanel } from '@/components/cartograph/story/mechanism-panel';
+import { ProblemPanel } from '@/components/cartograph/story/problem-panel';
+import { TopographyBackdrop } from '@/components/cartograph/story/topography-backdrop';
 import { WelcomeBackdrop } from '@/components/cartograph/welcome-backdrop';
 import { Button } from '@/components/ui/button';
+import { useInView } from '@/hooks/use-in-view';
 
 function WelcomeImage() {
   return (
@@ -31,61 +36,73 @@ export const WelcomeView = ({
   onStartCall,
   ref,
 }: React.ComponentProps<'div'> & WelcomeViewProps) => {
+  // The story panels get their own WebGL backdrop (Topography); the hero's
+  // dot grid steps aside while they're in view — one WebGL/canvas render
+  // loop on screen at a time.
+  const [storyRef, storyInView] = useInView<HTMLDivElement>(0.1);
+
   return (
-    <div
-      ref={ref}
-      className="fixed inset-0 flex flex-col items-center justify-center overflow-hidden"
-    >
-      <WelcomeBackdrop />
+    <div ref={ref} className="fixed inset-0 overflow-x-hidden overflow-y-auto">
+      <div className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden">
+        {!storyInView && <WelcomeBackdrop />}
 
-      <section className="relative z-10 flex flex-col items-center justify-center px-4 text-center">
-        <WelcomeImage />
+        <section className="relative z-10 flex flex-col items-center justify-center px-4 text-center">
+          <WelcomeImage />
 
-        <h1 className="text-foreground max-w-prose font-mono text-lg font-bold tracking-tight md:text-2xl">
-          Cartograph
-        </h1>
+          <h1 className="text-foreground max-w-prose font-mono text-lg font-bold tracking-tight md:text-2xl">
+            Cartograph
+          </h1>
 
-        <BlurText
-          text="Draw your architecture out loud. It only draws what you actually heard."
-          animateBy="words"
-          direction="bottom"
-          delay={60}
-          className="text-muted-foreground mt-3 max-w-prose justify-center pt-1 leading-6 font-medium"
-        />
+          <BlurText
+            text="Draw your architecture out loud. It only draws what you actually heard."
+            animateBy="words"
+            direction="bottom"
+            delay={60}
+            className="text-muted-foreground mt-3 max-w-prose justify-center pt-1 leading-6 font-medium"
+          />
 
-        <motion.div
-          className="mt-6 rounded-full"
-          animate={{
-            boxShadow: [
-              '0 0 0 0 color-mix(in oklch, var(--state-committed) 55%, transparent)',
-              '0 0 0 8px color-mix(in oklch, var(--state-committed) 0%, transparent)',
-            ],
-          }}
-          transition={{ duration: 2, repeat: Infinity, ease: 'easeOut' }}
-        >
-          <Button
-            size="lg"
-            onClick={onStartCall}
-            className="w-64 rounded-full font-mono text-xs font-bold tracking-wider uppercase"
+          <motion.div
+            className="mt-6 rounded-full"
+            animate={{
+              boxShadow: [
+                '0 0 0 0 color-mix(in oklch, var(--state-committed) 55%, transparent)',
+                '0 0 0 8px color-mix(in oklch, var(--state-committed) 0%, transparent)',
+              ],
+            }}
+            transition={{ duration: 2, repeat: Infinity, ease: 'easeOut' }}
           >
-            {startButtonText}
-          </Button>
-        </motion.div>
-      </section>
+            <Button
+              size="lg"
+              onClick={onStartCall}
+              className="w-64 rounded-full font-mono text-xs font-bold tracking-wider uppercase"
+            >
+              {startButtonText}
+            </Button>
+          </motion.div>
+        </section>
 
-      <div className="fixed bottom-5 left-0 z-10 flex w-full items-center justify-center">
-        <p className="text-muted-foreground max-w-prose pt-1 text-xs leading-5 font-normal text-pretty md:text-sm">
-          Need help getting set up? Check out the{' '}
-          <a
-            target="_blank"
-            rel="noopener noreferrer"
-            href="https://docs.livekit.io/agents/start/voice-ai/"
-            className="underline"
-          >
-            Voice AI quickstart
-          </a>
-          .
-        </p>
+        <div className="absolute bottom-5 left-0 z-10 flex w-full items-center justify-center">
+          <p className="text-muted-foreground max-w-prose pt-1 text-xs leading-5 font-normal text-pretty md:text-sm">
+            Need help getting set up? Check out the{' '}
+            <a
+              target="_blank"
+              rel="noopener noreferrer"
+              href="https://docs.livekit.io/agents/start/voice-ai/"
+              className="underline"
+            >
+              Voice AI quickstart
+            </a>
+            .
+          </p>
+        </div>
+      </div>
+
+      {/* The pitch story — doubles as a project page below the fold. */}
+      <div ref={storyRef} className="relative">
+        {storyInView && <TopographyBackdrop />}
+        <ProblemPanel />
+        <MechanismPanel />
+        <EvidencePanel />
       </div>
     </div>
   );

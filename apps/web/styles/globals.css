@@ -172,3 +172,42 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Scroll-driven pitch story panels — the Apple technique, compositor-driven,
+   zero JS. A panel scales/fades in as it enters the viewport, then settles. */
+.story-panel {
+  opacity: 0;
+  transform: translateY(40px) scale(0.96);
+  animation: cartograph-reveal linear both;
+  animation-timeline: view();
+  animation-range: entry 10% cover 40%;
+}
+
+@keyframes cartograph-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(40px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* Browsers without scroll-driven animation support (Safari, older Firefox)
+   just see the panels fully visible — no fallback JS scroll library. */
+@supports not (animation-timeline: view()) {
+  .story-panel {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .story-panel {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+}
