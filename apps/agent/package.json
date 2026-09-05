@@ -33,6 +33,9 @@
     "vitest": "^4.1.4"
   },
   "dependencies": {
+    "@langchain/core": "^1.2.9",
+    "@langchain/langgraph": "^1.4.14",
+    "@langchain/openai": "^1.5.11",
     "@livekit/agents": "^1.6.3",
     "@livekit/agents-plugin-rime": "^1.7.1",
     "@livekit/plugins-ai-coustics": "^0.2.14",
@@ -40,6 +43,7 @@
     "@repo/logger": "workspace:*",
     "@repo/protocol": "workspace:*",
     "dotenv": "^17.4.1",
+    "livekit-server-sdk": "^2.13.3",
     "zod": "^4.4.3"
   }
 }

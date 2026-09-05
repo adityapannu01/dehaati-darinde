@@ -56,13 +56,13 @@ describe('resolveGraphModel', () => {
 });
 
 describe('resolveStructuredMethod', () => {
-  it('defaults to jsonSchema', () => {
-    expect(resolveStructuredMethod()).toBe('jsonSchema');
+  it('defaults to functionCalling (the only method that works against gemma-4-31b-it via LiveKit Inference — see probe-structured.ts)', () => {
+    expect(resolveStructuredMethod()).toBe('functionCalling');
   });
 
   it('accepts the other two documented methods', () => {
-    process.env.GRAPH_STRUCTURED_METHOD = 'functionCalling';
-    expect(resolveStructuredMethod()).toBe('functionCalling');
+    process.env.GRAPH_STRUCTURED_METHOD = 'jsonSchema';
+    expect(resolveStructuredMethod()).toBe('jsonSchema');
     process.env.GRAPH_STRUCTURED_METHOD = 'jsonMode';
     expect(resolveStructuredMethod()).toBe('jsonMode');
   });

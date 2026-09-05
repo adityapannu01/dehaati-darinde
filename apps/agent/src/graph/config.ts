@@ -24,7 +24,7 @@ export type StructuredMethod = 'jsonSchema' | 'functionCalling' | 'jsonMode';
 
 /** Which withStructuredOutput() method the gateway+model combination actually supports — see graph/probe-structured.ts. */
 export function resolveStructuredMethod(): StructuredMethod {
-  const raw = env('GRAPH_STRUCTURED_METHOD', 'jsonSchema');
+  const raw = env('GRAPH_STRUCTURED_METHOD', 'functionCalling');
   if (raw === 'jsonSchema' || raw === 'functionCalling' || raw === 'jsonMode') return raw;
   throw new Error(
     `Unknown GRAPH_STRUCTURED_METHOD "${raw}". Expected one of: jsonSchema, functionCalling, jsonMode.`
