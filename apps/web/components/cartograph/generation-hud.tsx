@@ -1,5 +1,6 @@
 'use client';
 
+import SplitFlapText from '@/components/SplitFlapText';
 import type { CartographStatus } from '@/hooks/use-cartograph';
 import { cn } from '@/lib/shadcn/utils';
 
@@ -27,7 +28,21 @@ export function GenerationHud({ status, className }: GenerationHudProps) {
       )}
       <dl className="grid grid-cols-[auto_1fr] gap-x-2 gap-y-1">
         <dt className="text-muted-foreground">generation</dt>
-        <dd>{status?.generation ?? '—'}</dd>
+        <dd>
+          <SplitFlapText
+            text={String(status?.generation ?? 0)}
+            charset="numeric"
+            padTo={2}
+            fontSize={16}
+            flipDuration={280}
+            stagger={40}
+            gap={2}
+            tileRadius={3}
+            tileColor="var(--card)"
+            textColor="var(--state-committed)"
+            loop={false}
+          />
+        </dd>
 
         <dt className="text-muted-foreground">tts</dt>
         <dd className="truncate" title={status?.ttsProvider}>
