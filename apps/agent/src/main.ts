@@ -13,6 +13,7 @@ import { EventLedger } from './core/ledger.ts';
 import { StagingBuffer } from './core/staging.ts';
 import { CanvasPublisher } from './transport/publisher.ts';
 import { createTTS } from './tts.ts';
+import { resolveLLMEngine } from './graph/config.ts';
 
 // Load environment variables from a local file.
 // Make sure to set LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET
@@ -29,6 +30,12 @@ export default defineAgent({
     // Pick the TTS engine (Rime by default) from TTS_PROVIDER. See src/tts.ts.
     const { tts, supportsExpressive, describe } = createTTS();
     logger.info(`[DD_agent] TTS: ${describe}`);
+
+    // Kill switch for the LangGraph planner: 'direct' (default) is today's
+    // single inference.LLM call; 'graph' routes through CanvasAgent.llmNode.
+    // Resolved (and thrown on if invalid) at boot, same pattern as TTS_PROVIDER.
+    const llmEngine = resolveLLMEngine();
+    logger.info(`[DD_agent] LLM engine: ${llmEngine}`);
 
     // Core Cartograph engine: generation fencing, staged mutations, the
     // canvas itself, and the event ledger the browser will stream. See
@@ -62,6 +69,7 @@ export default defineAgent({
         kind: 'status',
         generation: gm.currentId,
         ttsProvider: describe,
+        llmEngine,
         baselineMode,
         speaking,
         toolRunning: toolsInFlight > 0,

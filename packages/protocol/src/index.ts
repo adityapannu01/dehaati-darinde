@@ -74,6 +74,8 @@ export type ServerMessage =
       kind: 'status';
       generation: number;
       ttsProvider: string;
+      /** 'direct' = a single inference.LLM call; 'graph' = LangGraph planning/routing — see apps/agent/src/graph. */
+      llmEngine: string;
       baselineMode: boolean;
       speaking: boolean;
       toolRunning: boolean;

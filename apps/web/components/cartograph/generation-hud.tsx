@@ -59,6 +59,9 @@ export function GenerationHud({ status, className }: GenerationHudProps) {
           {status?.ttsProvider ?? '—'}
         </dd>
 
+        <dt className="text-muted-foreground">llm</dt>
+        <dd className="truncate">{status?.llmEngine ?? '—'}</dd>
+
         <dt className="text-muted-foreground">speaking</dt>
         <dd className="flex items-center gap-1">
           <span

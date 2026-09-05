@@ -16,6 +16,7 @@ const MAX_EVENTS = 200;
 export interface CartographStatus {
   generation: number;
   ttsProvider: string;
+  llmEngine: string;
   baselineMode: boolean;
   speaking: boolean;
   toolRunning: boolean;
@@ -80,6 +81,7 @@ export function useCartograph(): UseCartographReturn {
           setStatus({
             generation: msg.generation,
             ttsProvider: msg.ttsProvider,
+            llmEngine: msg.llmEngine,
             baselineMode: msg.baselineMode,
             speaking: msg.speaking,
             toolRunning: msg.toolRunning,
