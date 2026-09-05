@@ -7,9 +7,12 @@ import {
   Background,
   Controls,
   type Edge,
+  EdgeLabelRenderer,
+  type EdgeProps,
   type Node,
   type NodeProps,
   ReactFlow,
+  getBezierPath,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { DUR, SPRING } from '@/lib/motion';
@@ -95,6 +98,84 @@ function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
 }
 
 const nodeTypes = { cartographNode: CartographNodeView };
+
+/**
+ * Draws the connection on rather than just showing it — stroke-dashoffset
+ * animates from the path's own length to 0 once, then settles to a static
+ * stroke. A screen full of permanently-animating edges would be noise; a
+ * new one being wired up as you watch is the point.
+ */
+function CartographEdgeView({
+  id,
+  sourceX,
+  sourceY,
+  sourcePosition,
+  targetX,
+  targetY,
+  targetPosition,
+  label,
+}: EdgeProps) {
+  const [path, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+  const pathRef = useRef<SVGPathElement>(null);
+  const [length, setLength] = useState<number | null>(null);
+  const [drawn, setDrawn] = useState(false);
+
+  useEffect(() => {
+    const el = pathRef.current;
+    if (!el) return;
+    setLength(el.getTotalLength());
+    const raf = requestAnimationFrame(() => setDrawn(true));
+    return () => cancelAnimationFrame(raf);
+    // Only re-measure/redraw if this edge's own geometry actually changes —
+    // not on every unrelated parent re-render.
+  }, [path]);
+
+  return (
+    <>
+      <path
+        ref={pathRef}
+        id={id}
+        d={path}
+        fill="none"
+        stroke="var(--muted-foreground)"
+        strokeWidth={1.5}
+        style={
+          length !== null
+            ? {
+                strokeDasharray: length,
+                strokeDashoffset: drawn ? 0 : length,
+                transition: `stroke-dashoffset ${DUR.slow}s ease-out`,
+              }
+            : { opacity: 0 }
+        }
+      />
+      {label && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: 'absolute',
+              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
+              opacity: drawn ? 1 : 0,
+              transition: `opacity ${DUR.base}s ease-out`,
+            }}
+            className="bg-card/90 text-muted-foreground rounded px-1.5 py-0.5 text-[10px]"
+          >
+            {label}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+}
+
+const edgeTypes = { cartographEdge: CartographEdgeView };
 
 interface ArchitectureCanvasProps {
   nodes: CanvasNode[];
@@ -183,12 +264,12 @@ export function ArchitectureCanvas({ nodes, edges, className }: ArchitectureCanv
     () =>
       edges.map((e) => ({
         id: e.id,
+        type: 'cartographEdge',
         source: e.source,
         target: e.target,
         label: e.label,
-        animated: justArrived.has(e.id),
       })),
-    [edges, justArrived]
+    [edges]
   );
 
   return (
@@ -197,6 +278,7 @@ export function ArchitectureCanvas({ nodes, edges, className }: ArchitectureCanv
         nodes={flowNodes}
         edges={flowEdges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
