@@ -93,6 +93,12 @@ Runs 45 deterministic scenarios (a `toolDelay x interruptAt x corrections` matri
 - **Rime** — text-to-speech, direct WebSocket plugin.
 - **AssemblyAI** and **Google** (Gemma) — reached only through LiveKit Inference, no direct API keys held by this repo.
 
+## Third-party UI sources
+
+The aesthetic layer copies component source (not a runtime dependency) from:
+
+- **[React Bits](https://reactbits.dev)** ([GitHub](https://github.com/DavidHDev/react-bits)) — MIT + Commons Clause. `BlurText`, `SplitFlapText`, `DotGrid` (`apps/web/components/`), each modified after copying — see the file headers/comments for what changed. Commons Clause restricts *reselling the library itself*, not using it in a product like this one.
+
 ## Known limitations
 
 - Read-only/reversible tools only (brainstorm §26): no purchases, deletes, or emails — an irreversible external effect can't be meaningfully fenced.
