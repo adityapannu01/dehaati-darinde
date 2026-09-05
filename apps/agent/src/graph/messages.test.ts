@@ -1,7 +1,7 @@
 import { llm } from '@livekit/agents';
 import { AIMessage, HumanMessage, SystemMessage, ToolMessage } from '@langchain/core/messages';
 import { describe, expect, it } from 'vitest';
-import { isPostToolStep, toLangChainMessages } from './messages.ts';
+import { isPostToolStep, lastUserText, toLangChainMessages } from './messages.ts';
 
 function buildChatCtx(): llm.ChatContext {
   return new llm.ChatContext([
@@ -59,5 +59,15 @@ describe('isPostToolStep', () => {
 
   it('is false for an empty context', () => {
     expect(isPostToolStep(llm.ChatContext.empty())).toBe(false);
+  });
+});
+
+describe('lastUserText', () => {
+  it('returns the most recent user message, ignoring later assistant/tool items', () => {
+    expect(lastUserText(buildChatCtx())).toBe('Add a Redis cache.');
+  });
+
+  it('returns the empty string when there is no user message', () => {
+    expect(lastUserText(llm.ChatContext.empty())).toBe('');
   });
 });

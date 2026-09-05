@@ -59,3 +59,12 @@ export function toLangChainMessages(
 export function isPostToolStep(chatCtx: llmTypes.ChatContext): boolean {
   return chatCtx.items.at(-1)?.type === 'function_call_output';
 }
+
+/** The most recent user utterance — the `userInput` the router/planner classify and plan against. */
+export function lastUserText(chatCtx: llmTypes.ChatContext): string {
+  for (let i = chatCtx.items.length - 1; i >= 0; i--) {
+    const item = chatCtx.items[i];
+    if (item?.type === 'message' && item.role === 'user') return item.textContent ?? '';
+  }
+  return '';
+}

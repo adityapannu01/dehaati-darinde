@@ -74,6 +74,22 @@ export class CanvasStore {
     return { x: col * LAYOUT_SPACING, y: row * LAYOUT_SPACING };
   }
 
+  /**
+   * Compact text rendering for the LangGraph planner (labels + edges, no
+   * ids/coordinates it doesn't need) so it can resolve "the cache" to a real
+   * node without spending tokens on layout data.
+   */
+  summary(): string {
+    if (this.nodes.size === 0) return '(empty)';
+    const lines = Array.from(this.nodes.values(), (n) => `- ${n.label} (${n.kind})`);
+    for (const e of this.edges.values()) {
+      const source = this.nodes.get(e.source)?.label ?? e.source;
+      const target = this.nodes.get(e.target)?.label ?? e.target;
+      lines.push(`- ${source} -> ${target}${e.label ? ` (${e.label})` : ''}`);
+    }
+    return lines.join('\n');
+  }
+
   get nodeCount(): number {
     return this.nodes.size;
   }

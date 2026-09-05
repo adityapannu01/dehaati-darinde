@@ -77,4 +77,20 @@ describe('CanvasStore', () => {
     const second = store.nextLayout();
     expect(second).not.toEqual(first);
   });
+
+  it('summary is "(empty)" for a store with no nodes', () => {
+    expect(new CanvasStore().summary()).toBe('(empty)');
+  });
+
+  it('summary lists node labels/kinds and edges by resolved label', () => {
+    const store = new CanvasStore();
+    store.apply({ op: 'addNode', node: node('api', 'API Gateway') });
+    store.apply({ op: 'addNode', node: { ...node('cache', 'Redis Cache'), kind: 'datastore' } });
+    store.apply({ op: 'addEdge', edge: { id: 'api-cache', source: 'api', target: 'cache', label: 'reads/writes' } });
+
+    const summary = store.summary();
+    expect(summary).toContain('API Gateway (service)');
+    expect(summary).toContain('Redis Cache (datastore)');
+    expect(summary).toContain('API Gateway -> Redis Cache (reads/writes)');
+  });
 });
