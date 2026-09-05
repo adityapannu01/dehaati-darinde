@@ -1,9 +1,18 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import type { CanvasEdge, CanvasNode, NodeKind } from '@repo/protocol';
-import { Background, Controls, type Edge, type Node, ReactFlow } from '@xyflow/react';
+import {
+  Background,
+  Controls,
+  type Edge,
+  type Node,
+  type NodeProps,
+  ReactFlow,
+} from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { DUR, SPRING } from '@/lib/motion';
 import { cn } from '@/lib/shadcn/utils';
 
 // Kind -> hue, sourced from the theme (styles/globals.css --kind-*) so the
@@ -17,6 +26,75 @@ const KIND_COLORS: Record<NodeKind, string> = {
 };
 
 const HIGHLIGHT_MS = 1200;
+const REMOVE_GRACE_MS = DUR.slow * 1000;
+
+interface CartographNodeData extends Record<string, unknown> {
+  label: string;
+  kind: NodeKind;
+  justArrived: boolean;
+  /** Soft-deleted: still rendered so its exit animation can play, no longer in the incoming props. */
+  removing: boolean;
+}
+
+/**
+ * Position stays owned by xyflow (the `position` field on the Node object);
+ * this component only ever animates opacity/scale/filter/colour. Animating
+ * position in both places produces fighting transforms.
+ */
+function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
+  const color = KIND_COLORS[data.kind];
+  const prevLabel = useRef(data.label);
+  const [justReplaced, setJustReplaced] = useState(false);
+
+  useEffect(() => {
+    if (prevLabel.current === data.label) return;
+    prevLabel.current = data.label;
+    setJustReplaced(true);
+    const timer = setTimeout(() => setJustReplaced(false), DUR.slow * 1000);
+    return () => clearTimeout(timer);
+  }, [data.label]);
+
+  return (
+    <motion.div
+      initial={{ scale: 0.92, opacity: 0 }}
+      animate={
+        data.removing
+          ? { scale: 0.9, opacity: 0, filter: 'blur(8px)' }
+          : { scale: 1, opacity: 1, filter: 'blur(0px)' }
+      }
+      transition={data.removing ? { duration: DUR.slow } : SPRING}
+      style={{
+        borderColor: data.removing ? 'var(--state-stale)' : color,
+        borderWidth: 2,
+        borderStyle: 'solid',
+        borderRadius: 8,
+        padding: '6px 10px',
+        fontSize: 13,
+        background: 'var(--card)',
+        color: 'var(--card-foreground)',
+        boxShadow:
+          data.justArrived && !data.removing
+            ? `0 0 0 4px color-mix(in oklch, ${color} 40%, transparent)`
+            : undefined,
+        transition: 'box-shadow 0.6s ease-out',
+      }}
+    >
+      <AnimatePresence mode="wait">
+        <motion.span
+          key={data.label}
+          initial={justReplaced ? { opacity: 0, y: -4 } : false}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 4 }}
+          transition={{ duration: DUR.base }}
+        >
+          {data.label}
+        </motion.span>
+      </AnimatePresence>
+    </motion.div>
+  );
+}
+
+const nodeTypes = { cartographNode: CartographNodeView };
 
 interface ArchitectureCanvasProps {
   nodes: CanvasNode[];
@@ -32,11 +110,20 @@ interface ArchitectureCanvasProps {
  * the demo moment.
  */
 export function ArchitectureCanvas({ nodes, edges, className }: ArchitectureCanvasProps) {
+  // Ids currently on screen (present or mid-exit) — NOT permanently-growing,
+  // so a node removed and later re-added under the same id flashes again.
   const seenIds = useRef(new Set<string>());
   const [justArrived, setJustArrived] = useState<Set<string>>(new Set());
+  // Nodes xyflow should still render even though they've left `nodes` props,
+  // so their exit animation has time to play before they're actually gone.
+  const [removingNodes, setRemovingNodes] = useState<CanvasNode[]>([]);
+  const removalTimers = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const prevNodesRef = useRef<CanvasNode[]>([]);
 
   useEffect(() => {
+    const currentIds = new Set(nodes.map((n) => n.id));
     const fresh = new Set<string>();
+
     for (const n of nodes) {
       if (!seenIds.current.has(n.id)) {
         seenIds.current.add(n.id);
@@ -49,38 +136,48 @@ export function ArchitectureCanvas({ nodes, edges, className }: ArchitectureCanv
         fresh.add(e.id);
       }
     }
+
+    // Anything that was on screen and just dropped out of `nodes` starts its exit.
+    for (const prev of prevNodesRef.current) {
+      if (currentIds.has(prev.id) || removalTimers.current.has(prev.id)) continue;
+      seenIds.current.delete(prev.id); // re-adding this id later should flash again
+      setRemovingNodes((r) => [...r, prev]);
+      const timer = setTimeout(() => {
+        setRemovingNodes((r) => r.filter((n) => n.id !== prev.id));
+        removalTimers.current.delete(prev.id);
+      }, REMOVE_GRACE_MS);
+      removalTimers.current.set(prev.id, timer);
+    }
+    prevNodesRef.current = nodes;
+
     if (fresh.size === 0) return;
     setJustArrived(fresh);
     const timer = setTimeout(() => setJustArrived(new Set()), HIGHLIGHT_MS);
     return () => clearTimeout(timer);
   }, [nodes, edges]);
 
-  const flowNodes: Node[] = useMemo(
-    () =>
-      nodes.map((n) => {
-        const color = KIND_COLORS[n.kind];
-        return {
-          id: n.id,
-          position: { x: n.x, y: n.y },
-          data: { label: n.label },
-          style: {
-            borderColor: color,
-            borderWidth: 2,
-            borderStyle: 'solid',
-            borderRadius: 8,
-            padding: 8,
-            fontSize: 13,
-            background: 'var(--card)',
-            color: 'var(--card-foreground)',
-            boxShadow: justArrived.has(n.id)
-              ? `0 0 0 4px color-mix(in oklch, ${color} 40%, transparent)`
-              : undefined,
-            transition: 'box-shadow 0.6s ease-out',
-          },
-        };
-      }),
-    [nodes, justArrived]
-  );
+  useEffect(() => {
+    const timers = removalTimers.current;
+    return () => {
+      for (const t of timers.values()) clearTimeout(t);
+    };
+  }, []);
+
+  const flowNodes: Node[] = useMemo(() => {
+    const live: Node<CartographNodeData>[] = nodes.map((n) => ({
+      id: n.id,
+      type: 'cartographNode',
+      position: { x: n.x, y: n.y },
+      data: { label: n.label, kind: n.kind, justArrived: justArrived.has(n.id), removing: false },
+    }));
+    const exiting: Node<CartographNodeData>[] = removingNodes.map((n) => ({
+      id: n.id,
+      type: 'cartographNode',
+      position: { x: n.x, y: n.y },
+      data: { label: n.label, kind: n.kind, justArrived: false, removing: true },
+    }));
+    return [...live, ...exiting];
+  }, [nodes, justArrived, removingNodes]);
 
   const flowEdges: Edge[] = useMemo(
     () =>
@@ -99,6 +196,7 @@ export function ArchitectureCanvas({ nodes, edges, className }: ArchitectureCanv
       <ReactFlow
         nodes={flowNodes}
         edges={flowEdges}
+        nodeTypes={nodeTypes}
         nodesDraggable={false}
         nodesConnectable={false}
         elementsSelectable={false}
