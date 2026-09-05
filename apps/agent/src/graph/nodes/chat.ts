@@ -18,3 +18,15 @@ export async function chatNode(
   const result = await model.invoke(state.history, config.signal ? { signal: config.signal } : {});
   return { reply: typeof result.content === 'string' ? result.content : String(result.content) };
 }
+
+/**
+ * §4.2: token-by-token variant of the same fast path, for when the caller
+ * can forward chunks straight to TTS instead of waiting for the full reply.
+ */
+export async function* chatStream(state: CanvasStateT, config: RunnableConfig): AsyncGenerator<string> {
+  const { model } = getModel(config);
+  const stream = await model.stream(state.history, config.signal ? { signal: config.signal } : {});
+  for await (const chunk of stream) {
+    if (typeof chunk.content === 'string' && chunk.content) yield chunk.content;
+  }
+}

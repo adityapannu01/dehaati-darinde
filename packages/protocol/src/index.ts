@@ -56,7 +56,11 @@ export type LedgerEventType =
   | 'sentence_delivered'
   | 'mutation_staged'
   | 'mutation_committed'
-  | 'mutation_dropped';
+  | 'mutation_dropped'
+  /** LLM_ENGINE=graph only — see apps/agent/src/graph. */
+  | 'graph_route'
+  | 'graph_plan'
+  | 'graph_plan_invalid';
 
 export interface LedgerEvent {
   seq: number;

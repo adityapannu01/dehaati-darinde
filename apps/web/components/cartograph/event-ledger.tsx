@@ -21,6 +21,7 @@ const COLOR_BY_TYPE: Partial<Record<LedgerEventType, string>> = {
   tool_aborted: 'text-state-stale',
   generation_cancelled: 'text-state-cancelled',
   speech_interrupted: 'text-state-cancelled',
+  graph_plan_invalid: 'text-state-stale',
 };
 
 /**

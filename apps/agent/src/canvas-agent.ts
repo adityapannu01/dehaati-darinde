@@ -2,9 +2,12 @@ import { llm, type ModelSettings, voice } from '@livekit/agents';
 import type { AudioFrame } from '@livekit/rtc-node';
 import { ReadableStream, TransformStream } from 'node:stream/web';
 import { resolveLLMEngine, resolveStructuredMethod } from './graph/config.ts';
-import { cartographGraph } from './graph/index.ts';
 import { isPostToolStep, lastUserText, toLangChainMessages } from './graph/messages.ts';
 import { makeModel } from './graph/model.ts';
+import { chatStream } from './graph/nodes/chat.ts';
+import { planProgressive } from './graph/nodes/plan.ts';
+import { routeNode } from './graph/nodes/route.ts';
+import type { CanvasStateT } from './graph/state.ts';
 import type { CanvasToolsDeps } from './tools/canvas-tools.ts';
 
 export interface SpokenWord {
@@ -72,30 +75,41 @@ export class CanvasAgent extends voice.Agent {
       return voice.Agent.default.llmNode(this, chatCtx, toolCtx, modelSettings);
     }
 
-    const signal = this.deps.gm.get(this.deps.gm.currentId)?.abort.signal;
+    const gen = this.deps.gm.currentId;
+    const signal = this.deps.gm.get(gen)?.abort.signal;
     const history = toLangChainMessages(chatCtx, this.persona);
     const userInput = lastUserText(chatCtx);
     const canvasSummary = this.deps.canvas.summary();
     const model = await makeModel();
     const structuredMethod = resolveStructuredMethod();
+    const config = { ...(signal ? { signal } : {}), configurable: { model, structuredMethod } };
+    const state: CanvasStateT = { userInput, history, canvasSummary, route: 'chat', plan: null, reply: '' };
+    const ledger = this.deps.ledger;
+
+    // Cheap, on the critical path of every turn — decided once, up front, not
+    // inside the stream, so it can drive the graph_route ledger event
+    // (§5.1) synchronously with the rest of llmNode's setup.
+    const { route = 'chat' } = await routeNode(state, config);
+    ledger.push('graph_route', gen, `route=${route}`);
 
     return new ReadableStream<llm.ChatChunk | string>({
       async start(controller) {
         // NO canned lead-in here — a terminated filler sentence spoken before
         // the plan's first sentence would advance DeliveryTracker and commit
         // mutations[0] before its describing sentence has been heard (§4.7).
-        const result = await cartographGraph.invoke(
-          { userInput, history, canvasSummary },
-          { ...(signal ? { signal } : {}), configurable: { model, structuredMethod } },
-        );
-
-        if (result.route === 'chat') {
-          controller.enqueue(result.reply);
+        if (route === 'chat') {
+          // §4.2: stream tokens directly instead of awaiting the full reply.
+          for await (const token of chatStream(state, config)) {
+            controller.enqueue(token);
+          }
           controller.close();
           return;
         }
 
-        for (const [i, m] of (result.plan?.mutations ?? []).entries()) {
+        // §4.1: progressive JSON parsing — a mutation's sentence is spoken
+        // (and its tool call handed to LiveKit) the instant that mutation is
+        // complete, while later ones in the plan are still generating.
+        const { plan, valid } = await planProgressive(state, config, (m, i) => {
           controller.enqueue(`${m.sentence} `); // spoken -> drives CommitGate
           controller.enqueue({
             id: `plan-${i}`,
@@ -110,6 +124,15 @@ export class CanvasAgent extends voice.Agent {
               ],
             },
           } satisfies llm.ChatChunk); // executed by LiveKit -> fenced
+        });
+
+        // A validation failure here means mutations may already have been
+        // spoken and staged — there is nothing to un-say, so just log it and
+        // let CommitGate (unaffected) handle whatever was actually staged.
+        if (valid) {
+          ledger.push('graph_plan', gen, `${plan.mutations.length} mutation(s)`);
+        } else {
+          ledger.push('graph_plan_invalid', gen, 'plan failed schema validation after streaming');
         }
         controller.close();
       },
