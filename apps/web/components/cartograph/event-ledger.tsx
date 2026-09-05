@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import type { LedgerEvent, LedgerEventType } from '@repo/protocol';
+import { DUR } from '@/lib/motion';
 import { cn } from '@/lib/shadcn/utils';
 
 interface EventLedgerProps {
@@ -9,14 +11,16 @@ interface EventLedgerProps {
   className?: string;
 }
 
+// Same five-state vocabulary as the canvas and HUD — a colour means the same
+// thing everywhere it appears, which is most of what reads as "designed".
 const COLOR_BY_TYPE: Partial<Record<LedgerEventType, string>> = {
-  mutation_committed: 'text-emerald-400',
-  tool_completed: 'text-emerald-400',
-  tool_stale_discarded: 'text-red-400',
-  mutation_dropped: 'text-red-400',
-  tool_aborted: 'text-red-400',
-  generation_cancelled: 'text-amber-400',
-  speech_interrupted: 'text-amber-400',
+  mutation_committed: 'text-state-committed',
+  tool_completed: 'text-state-committed',
+  tool_stale_discarded: 'text-state-stale',
+  mutation_dropped: 'text-state-stale',
+  tool_aborted: 'text-state-stale',
+  generation_cancelled: 'text-state-cancelled',
+  speech_interrupted: 'text-state-cancelled',
 };
 
 /**
@@ -47,12 +51,21 @@ export function EventLedger({ events, className }: EventLedgerProps) {
         className="flex-1 overflow-y-auto px-3 py-2 font-mono text-[11px] leading-relaxed"
       >
         {events.length === 0 && <div className="text-muted-foreground">Waiting for events…</div>}
-        {events.map((e) => (
-          <div key={e.seq} className={cn('truncate', COLOR_BY_TYPE[e.type] ?? 'text-foreground')}>
-            [{e.generation}] {e.type}
-            {e.detail ? ` ${e.detail}` : ''}
-          </div>
-        ))}
+        <AnimatePresence initial={false}>
+          {events.map((e) => (
+            <motion.div
+              key={e.seq}
+              layout
+              initial={{ opacity: 0, x: -6 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: DUR.fast }}
+              className={cn('truncate', COLOR_BY_TYPE[e.type] ?? 'text-foreground')}
+            >
+              [{e.generation}] {e.type}
+              {e.detail ? ` ${e.detail}` : ''}
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
     </div>
   );

@@ -1,7 +1,9 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { useTheme } from 'next-themes';
 import { AnimatePresence, motion } from 'motion/react';
+import { toast } from 'sonner';
 import { useSessionContext } from '@livekit/components-react';
 import type { AppConfig } from '@/app-config';
 import { AgentSessionView_01 } from '@/components/agents-ui/blocks/agent-session-view-01';
@@ -40,6 +42,27 @@ export function ViewController({ appConfig }: ViewControllerProps) {
   const { isConnected, start } = useSessionContext();
   const { resolvedTheme } = useTheme();
   const { nodes, edges, events, status } = useCartograph();
+  const lastToastedSeq = useRef(0);
+
+  // A stale tool result being rejected in real time is the money shot —
+  // impossible to miss on a recording, styled with the same --state-stale
+  // token as its ledger line and canvas dissolve.
+  useEffect(() => {
+    const fresh = events.filter(
+      (e) => e.type === 'tool_stale_discarded' && e.seq > lastToastedSeq.current
+    );
+    if (fresh.length === 0) return;
+    lastToastedSeq.current = events.at(-1)?.seq ?? lastToastedSeq.current;
+    for (const e of fresh) {
+      toast('Stale result discarded', {
+        description: e.detail,
+        style: {
+          borderColor: 'var(--state-stale)',
+          borderLeftWidth: 4,
+        },
+      });
+    }
+  }, [events]);
 
   return (
     <AnimatePresence mode="wait">
@@ -57,6 +80,13 @@ export function ViewController({ appConfig }: ViewControllerProps) {
           generation HUD + event ledger float in the corners. */}
       {isConnected && (
         <motion.div key="session-view" {...VIEW_MOTION_PROPS} className="fixed inset-0">
+          {status?.baselineMode && (
+            <div
+              aria-hidden
+              className="pointer-events-none fixed inset-0 z-30"
+              style={{ boxShadow: 'inset 0 0 0 2px var(--state-baseline)' }}
+            />
+          )}
           <ArchitectureCanvas nodes={nodes} edges={edges} className="absolute inset-0" />
           <SpokenLine
             spokenText={status?.spokenText ?? ''}
