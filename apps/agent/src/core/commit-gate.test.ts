@@ -133,4 +133,71 @@ describe('CommitGate', () => {
     gate.startGeneration();
     expect(gate.pendingText).toBe('');
   });
+
+  // F1 — catch-up commit at stage time
+  it('commits a mutation immediately when its sentence was already delivered before it staged', () => {
+    const { canvas, ledger, gate } = build();
+    gate.startGeneration();
+
+    // Sentence 0 is delivered while the (slow) tool is still working — the
+    // staging buffer is empty when commitThroughSentence runs off onWord.
+    let i = 0;
+    for (const w of SENTENCE_1) gate.onWord(1, word(w, i++));
+    expect(canvas.nodeCount).toBe(0);
+
+    // The tool finally stages mutations[0]. It must not wait for onTurnComplete.
+    gate.stage(1, 0, 'Redis', addNode('redis', 'Redis'));
+    expect(canvas.nodeCount).toBe(1);
+
+    const committed = ledger.all().filter((e) => e.type === 'mutation_committed');
+    expect(committed).toHaveLength(1);
+    expect(committed[0]?.detail).toContain('catchup');
+
+    // A catch-up is not a new sentence delivery — only the one from onWord.
+    const delivered = ledger.all().filter((e) => e.type === 'sentence_delivered');
+    expect(delivered).toHaveLength(1);
+  });
+
+  it('does not catch-up commit a mutation whose sentence has not been delivered yet', () => {
+    const { canvas, gate } = build();
+    gate.startGeneration();
+
+    // Only sentence 0 delivered; mutations[1] stages late but its sentence
+    // (index 1) was never heard.
+    let i = 0;
+    for (const w of SENTENCE_1) gate.onWord(1, word(w, i++));
+    gate.stage(1, 1, 'Mongo', addNode('mongo', 'Mongo'));
+
+    expect(canvas.nodeCount).toBe(0);
+  });
+
+  // F5 — seal a generation on interruption
+  it('refuses to stage into an interrupted generation and logs mutation_dropped, not mutation_staged', () => {
+    const { canvas, ledger, gate } = build();
+    gate.startGeneration();
+
+    gate.onInterrupted(1);
+    const result = gate.stage(1, 0, 'Redis', addNode('redis', 'Redis'));
+
+    expect(result).toBeUndefined();
+    expect(canvas.nodeCount).toBe(0);
+    expect(ledger.all().some((e) => e.type === 'mutation_staged')).toBe(false);
+    const dropped = ledger.all().filter((e) => e.type === 'mutation_dropped');
+    expect(dropped).toHaveLength(1);
+    expect(dropped[0]?.detail).toContain('after interruption');
+  });
+
+  it('a fresh generation is not sealed by a previous generation being interrupted', () => {
+    const { canvas, gate } = build();
+    gate.startGeneration();
+    gate.onInterrupted(1);
+
+    // Generation 2 opens and behaves normally.
+    gate.startGeneration();
+    gate.stage(2, 0, 'Redis', addNode('redis', 'Redis'));
+    let i = 0;
+    for (const w of SENTENCE_1) gate.onWord(2, word(w, i++));
+
+    expect(canvas.nodeCount).toBe(1);
+  });
 });
