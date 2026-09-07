@@ -108,9 +108,9 @@ Not code — rehearse against it before presenting.
 
 | Time | Beat |
 |---|---|
-| 0:00-0:30 | Target user + problem: engineers mapping a system by voice, live. |
-| 0:30-1:20 | Normal flow: speak three services, watch them land sentence by sentence. |
+| 0:00-0:30 | Target user + problem: an engineer thinking out loud through a system design, hands free — the canvas builds itself, and self-corrections are treated as normal, not errors. |
+| 0:30-1:20 | Normal flow: speak three services, watch them land sentence by sentence as Rime speaks them. |
 | 1:20-2:30 | **Stress case.** `SLOW_TOOL_MS=5000`. Say "add a Redis cache and connect it to the API gateway," interrupt on the second sentence with "wait, make that MongoDB." Show: audio cuts, the un-narrated edge never appears, the event ledger turns red, the 5-second-late tool result arrives and is rejected. |
 | 2:30-3:10 | Same script with `CARTOGRAPH_BASELINE=true` — the ghost node/edge appears. Side by side against the fenced run. |
-| 3:10-3:40 | `pnpm --filter DD_agent benchmark` output on screen — real numbers, not a slide. |
+| 3:10-3:40 | Numbers on screen, not a slide: `pnpm --filter DD_agent benchmark` (0% divergence vs 81% baseline) and the measured live-latency table (two independent runs, medians agreeing within ~1%). |
 | 3:40-4:20 | Rime's role: WebSocket streaming, word timestamps, and the fact that they're what drives the commit gate. Show the disclosure table in `README.md`. |
