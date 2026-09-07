@@ -211,15 +211,34 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
     },
   });
 
+  const clearCanvas = tool({
+    name: 'clearCanvas',
+    description:
+      'Wipe the entire diagram — every component and every connection — in one atomic step. Use for "clear the board", "wipe it", "start over", "let\'s begin again". Narrate it as a SINGLE sentence, e.g. "Clearing the board." — the whole wipe is one change, not one per node.',
+    parameters: z.object({ sentenceIndex: sentenceIndexParam }),
+    execute: async ({ sentenceIndex }) => {
+      const gen = deps.gm.currentId;
+      if (!deps.gm.isCurrent(gen)) {
+        deps.ledger.push('tool_stale_discarded', gen, 'clearCanvas');
+        return 'STALE_DISCARDED: this instruction was superseded. Do not mention this result.';
+      }
+      // One op, gated on one sentence: interrupt mid-"Clearing the board." and
+      // the wipe never lands, exactly like any other staged mutation.
+      deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), 'clear', { op: 'clear' });
+      deps.ledger.push('tool_completed', gen, 'clearCanvas');
+      return 'Staged: the board will clear once you have said so.';
+    },
+  });
+
   const describeArchitecture = tool({
     name: 'describeArchitecture',
     description:
-      'Read-only summary of the current architecture diagram (only committed, already-spoken components). Stages nothing.',
-    execute: async () => {
-      return deps.canvas.nodeCount === 0
-        ? 'The diagram is currently empty.'
-        : `The diagram currently has ${deps.canvas.nodeCount} component(s).`;
-    },
+      'Read-only summary of the current architecture diagram — every committed (already-spoken) component and connection, by name. Call this before answering "what do we have so far?" or before a bulk edit, instead of guessing from memory. Stages nothing.',
+    // B7: return the real structure (labels, kinds, edges), not a bare count.
+    // CanvasStore.summary() already renders exactly the compact form a model
+    // needs; the model paraphrases it into a spoken sentence.
+    execute: async () =>
+      deps.canvas.nodeCount === 0 ? 'The diagram is currently empty.' : deps.canvas.summary(),
   });
 
   return [
@@ -228,6 +247,7 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
     replaceComponent,
     renameComponent,
     removeComponent,
+    clearCanvas,
     describeArchitecture,
   ];
 }

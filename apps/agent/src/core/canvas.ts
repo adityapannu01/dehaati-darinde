@@ -11,6 +11,10 @@ export class CanvasStore {
   private nodes = new Map<string, CanvasNode>();
   private edges = new Map<string, CanvasEdge>();
   private version = 0;
+  // B5: placement index must only ever increment. Deriving it from nodes.size
+  // meant that removing a node then adding one reused an occupied grid slot and
+  // stacked two boxes exactly. Reset only by an explicit `clear`.
+  private placements = 0;
 
   apply(m: MutationOp): void {
     switch (m.op) {
@@ -48,6 +52,11 @@ export class CanvasStore {
       case 'removeEdge':
         this.edges.delete(m.edgeId);
         break;
+      case 'clear':
+        this.nodes.clear();
+        this.edges.clear();
+        this.placements = 0;
+        break;
     }
     this.version += 1;
   }
@@ -63,12 +72,14 @@ export class CanvasStore {
   }
 
   /**
-   * Deterministic grid position for the next node, derived from the current
-   * node count. Never ask the LLM for coordinates — it wastes tokens, adds
-   * latency, and produces garbage layouts.
+   * Deterministic grid position for the next node, from a monotonic placement
+   * counter (B5 — never `nodes.size`, which collides after a removal). Never
+   * ask the LLM for coordinates: it wastes tokens, adds latency, and produces
+   * garbage layouts.
    */
   nextLayout(): { x: number; y: number } {
-    const index = this.nodes.size;
+    const index = this.placements;
+    this.placements += 1;
     const col = index % LAYOUT_COLUMNS;
     const row = Math.floor(index / LAYOUT_COLUMNS);
     return { x: col * LAYOUT_SPACING, y: row * LAYOUT_SPACING };

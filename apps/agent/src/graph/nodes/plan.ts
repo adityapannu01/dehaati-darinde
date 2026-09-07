@@ -10,10 +10,14 @@ Available tools and their exact argument names:
 - replaceComponent: { targetLabel: string, newLabel: string, kind: "service"|"datastore"|"queue"|"gateway"|"external" }
 - renameComponent: { targetLabel: string, newLabel: string }
 - removeComponent: { targetLabel: string }
+- clearCanvas: {} — wipes the whole diagram in one step ("clear the board", "start over", "wipe it")
 
 Rules:
 - One mutation per distinct change the user asked for, in the order they mentioned them.
 - "args" must use exactly the argument names listed above for that tool, as strings.
+  clearCanvas takes no args — use {}.
+- A wipe is ONE mutation (clearCanvas), never one removeComponent per node. Its
+  "anchorPhrase" is "clear" and its "sentence" is like "Clearing the board.".
 - "anchorPhrase" is the component name the mutation is about.
 - "sentence" is exactly one short sentence narrating exactly this mutation, naming the
   component, and nothing else. Never combine two mutations into one sentence.
@@ -25,7 +29,7 @@ Current diagram:
 const PROGRESSIVE_JSON_HINT = `
 
 Respond with ONLY JSON matching this shape, no prose, no markdown fences:
-{"mutations":[{"tool":"addService"|"connectServices"|"replaceComponent"|"renameComponent"|"removeComponent","args":{},"anchorPhrase":"","sentence":""}]}`;
+{"mutations":[{"tool":"addService"|"connectServices"|"replaceComponent"|"renameComponent"|"removeComponent"|"clearCanvas","args":{},"anchorPhrase":"","sentence":""}]}`;
 
 export const EMPTY_PLAN: MutationPlanT = { mutations: [] };
 export const RETRY_REPLY = 'Sorry, could you say that again?';

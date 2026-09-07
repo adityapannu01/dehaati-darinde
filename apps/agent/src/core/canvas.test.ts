@@ -78,6 +78,36 @@ describe('CanvasStore', () => {
     expect(second).not.toEqual(first);
   });
 
+  it('B5: nextLayout never reuses a slot after a removal', () => {
+    const store = new CanvasStore();
+    const positions: string[] = [];
+    for (let i = 0; i < 3; i++) {
+      const p = store.nextLayout();
+      positions.push(`${p.x},${p.y}`);
+      store.apply({ op: 'addNode', node: { ...node(`n${i}`, `N${i}`), ...p } });
+    }
+    store.apply({ op: 'removeNode', nodeId: 'n1' });
+    const next = store.nextLayout();
+    expect(positions).not.toContain(`${next.x},${next.y}`);
+  });
+
+  it('B6: clear wipes every node and edge and resets the placement counter', () => {
+    const store = new CanvasStore();
+    const p0 = store.nextLayout();
+    store.apply({ op: 'addNode', node: { ...node('api', 'API'), ...p0 } });
+    store.apply({ op: 'addNode', node: node('redis', 'Redis') });
+    store.apply({ op: 'addEdge', edge: { id: 'api-redis', source: 'api', target: 'redis' } });
+
+    store.apply({ op: 'clear' });
+
+    const snap = store.snapshot(1);
+    expect(snap.nodes).toHaveLength(0);
+    expect(snap.edges).toHaveLength(0);
+    expect(store.currentVersion).toBeGreaterThan(0); // version still bumped
+    // Placement counter reset: the next node lands back in the first slot.
+    expect(store.nextLayout()).toEqual(p0);
+  });
+
   it('summary is "(empty)" for a store with no nodes', () => {
     expect(new CanvasStore().summary()).toBe('(empty)');
   });

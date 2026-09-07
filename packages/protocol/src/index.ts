@@ -32,7 +32,9 @@ export type MutationOp =
   | { op: 'renameNode'; nodeId: string; label: string }
   | { op: 'replaceNode'; nodeId: string; label: string; kind: NodeKind }
   | { op: 'addEdge'; edge: CanvasEdge }
-  | { op: 'removeEdge'; edgeId: string };
+  | { op: 'removeEdge'; edgeId: string }
+  /** Wipe every node and edge in a single atomic step (see clearCanvas tool). */
+  | { op: 'clear' };
 
 export interface StagedMutation {
   id: string;

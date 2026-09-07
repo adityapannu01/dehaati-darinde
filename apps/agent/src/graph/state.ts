@@ -18,6 +18,7 @@ export const MutationPlan = z.object({
         'replaceComponent',
         'renameComponent',
         'removeComponent',
+        'clearCanvas',
       ]),
       args: z.record(z.string(), z.string()),
       /** The component name — feeds the existing anchor-phrase mismatch guard in CommitGate. */

@@ -13,11 +13,21 @@ function setup(slowMs = 20) {
   const canvas = new CanvasStore();
   const commitGate = new CommitGate({ canvas, staging, ledger });
   const tools = createCanvasTools({ gm, commitGate, ledger, canvas, slowMs });
-  const addService = tools.find((t) => t.name === 'addService');
-  const connectServices = tools.find((t) => t.name === 'connectServices');
-  if (!addService || addService.type !== 'function') throw new Error('addService not found');
-  if (!connectServices || connectServices.type !== 'function') throw new Error('connectServices not found');
-  return { gm, staging, ledger, canvas, addService, connectServices };
+  const pick = (name: string) => {
+    const t = tools.find((tool) => tool.name === name);
+    if (!t || t.type !== 'function') throw new Error(`${name} not found`);
+    return t;
+  };
+  return {
+    gm,
+    staging,
+    ledger,
+    canvas,
+    addService: pick('addService'),
+    connectServices: pick('connectServices'),
+    clearCanvas: pick('clearCanvas'),
+    describeArchitecture: pick('describeArchitecture'),
+  };
 }
 
 // Tool.execute exists on function tools but isn't part of the narrow `Tool` union type
@@ -111,5 +121,55 @@ describe('canvas tools fencing contract', () => {
     await callExecute(addService, { label: 'Mongo', kind: 'datastore' }, { abortSignal: sig });
 
     expect(staging.pendingFor(g1.id).map((s) => s.sentenceIndex)).toEqual([0, 1]);
+  });
+});
+
+describe('clearCanvas (B6)', () => {
+  it('stages exactly one atomic clear op, not one removal per node', async () => {
+    const { gm, staging, canvas, clearCanvas } = setup(1);
+    canvas.apply({ op: 'addNode', node: { id: 'a', label: 'A', kind: 'service', x: 0, y: 0 } });
+    canvas.apply({ op: 'addNode', node: { id: 'b', label: 'B', kind: 'service', x: 0, y: 0 } });
+    const g1 = gm.start('clear the board');
+
+    const result = await callExecute(clearCanvas, {}, { abortSignal: new AbortController().signal });
+
+    expect(result).toContain('Staged');
+    const pending = staging.pendingFor(g1.id);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]?.mutation).toEqual({ op: 'clear' });
+    expect(pending[0]?.anchorPhrase).toBe('clear');
+  });
+
+  it('stages against the commit gate — the wipe does not touch the canvas until its sentence is heard', async () => {
+    const { gm, canvas, clearCanvas } = setup(1);
+    canvas.apply({ op: 'addNode', node: { id: 'a', label: 'A', kind: 'service', x: 0, y: 0 } });
+    gm.start('clear the board');
+
+    await callExecute(clearCanvas, {}, { abortSignal: new AbortController().signal });
+
+    // Staged only — the board still has its node until CommitGate commits.
+    expect(canvas.nodeCount).toBe(1);
+  });
+});
+
+describe('describeArchitecture (B7)', () => {
+  it('returns the real structure — labels, kinds, edges — not a bare count', async () => {
+    const { canvas, describeArchitecture } = setup(1);
+    canvas.apply({ op: 'addNode', node: { id: 'api', label: 'API Gateway', kind: 'gateway', x: 0, y: 0 } });
+    canvas.apply({ op: 'addNode', node: { id: 'redis', label: 'Redis', kind: 'datastore', x: 0, y: 0 } });
+    canvas.apply({ op: 'addEdge', edge: { id: 'api-redis', source: 'api', target: 'redis' } });
+
+    const result = String(await callExecute(describeArchitecture, {}, { abortSignal: new AbortController().signal }));
+
+    expect(result).toContain('API Gateway (gateway)');
+    expect(result).toContain('Redis (datastore)');
+    expect(result).toContain('API Gateway -> Redis');
+    expect(result).not.toMatch(/\d+ component/); // no "has 2 component(s)."
+  });
+
+  it('reports an empty diagram plainly', async () => {
+    const { describeArchitecture } = setup(1);
+    const result = await callExecute(describeArchitecture, {}, { abortSignal: new AbortController().signal });
+    expect(result).toBe('The diagram is currently empty.');
   });
 });
