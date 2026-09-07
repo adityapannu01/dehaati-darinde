@@ -104,6 +104,7 @@ The aesthetic layer copies component source (not a runtime dependency) from:
 - Read-only/reversible tools only (brainstorm §26): no purchases, deletes, or emails — an irreversible external effect can't be meaningfully fenced.
 - The anchor-phrase mismatch guard is a warning surfaced on the event ledger, not a block: a genuine mismatch still commits, because a hard block would turn a monitoring feature into a live-demo failure.
 - Commit granularity is per-sentence, not per-word: a mutation lands once its whole describing sentence is confirmed delivered.
+- Commit timing is a race between a tool finishing its work and its sentence being spoken. It resolves correctly from either side — if the tool stages first the sentence commits it, if the sentence lands first the tool commits on the catch-up path — but the *visual* tightness (a node appearing exactly as its sentence ends, not a beat later) depends on tools being fast, which is why `SLOW_TOOL_MS` defaults to `0` outside the interruption stress demo.
 - The 45 generated benchmark scenarios plus one hand-scripted out-of-order case are not a production traffic distribution — they exercise the specific race the commit gate is built to close, not general robustness.
 - Single-room scale; no multi-agent handoffs, no telephony, no multilingual routing (all cut deliberately — seeded in `IMPLEMENTATION_PLAN.md §2.3`, not rebuilt here since it isn't committed to the repo).
 - `apps/web`'s text-chat input is not wired to trigger agent turns in this starter — voice is the only input path exercised end-to-end.
