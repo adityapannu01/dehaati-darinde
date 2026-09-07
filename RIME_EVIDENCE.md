@@ -43,14 +43,14 @@ Measured 2026-09-07, this repo, `pnpm --filter DD_agent benchmark`:
 
 The 3 backchannel-during-narration scenarios (46) guard the B1 fix: a "mm-hmm" mid-sentence must not roll the generation and orphan the mutation whose sentence is still being spoken. `runner.test.ts` also runs the pre-fix always-fence path and asserts it *does* orphan — so the scenario has teeth.
 
-Live interruption/recovery latency, measured 2026-09-08 (real call, ~20 interruptions, full table and disclosed caveats in [`live-latency.md`](apps/agent/src/bench/live-latency.md)):
+Live interruption/recovery latency, measured 2026-09-08 across **two independent real sessions** (full unedited tables, both runs, in [`live-latency.md`](apps/agent/src/bench/live-latency.md)):
 
-| Leg | median | p95 | min | max |
-|---|--:|--:|--:|--:|
-| Fence latency (interrupt spoken → generation cancelled) | 2514 ms | 4607 ms | 196 ms | 8775 ms |
-| Recovery latency (cancelled → next turn's first audio) | 4009 ms | 7311 ms | 1918 ms | 43508 ms* |
+| Leg | Run 1 median | Run 2 median | p95 range | min | max |
+|---|--:|--:|--:|--:|--:|
+| Fence latency (interrupt spoken → generation cancelled) | 2514 ms | 2502 ms | 4.3-4.6s | 133 ms | 8775 ms |
+| Recovery latency (cancelled → next turn's first audio) | 4009 ms | 3672 ms | 6.2-7.3s | 1918 ms | 7379 ms* |
 
-\*One outlier (row 3, 43.5s) is a real pause between scripted test exchanges, not system latency — disclosed and excluded from the read below, not silently dropped; see `live-latency.md` for the full unedited table. Fence latency is dominated by how long the user's own interrupting phrase takes to say + transcribe, not raw cancellation (`cancelCurrent()` is synchronous). Recovery latency — LiveKit Inference LLM round-trip + Rime TTS time-to-first-audio — is the real optimization target and is slower than we'd like; reported as measured, not tuned away before reporting.
+The two runs' medians agree within ~1% — that agreement is the reproducibility check, not a cherry-picked single sample. \*Run 1 also logged one 43.5s recovery outlier: a real pause between scripted test exchanges (tester reading the next line), not system latency. It's kept in Run 1's table in `live-latency.md` rather than silently dropped, and excluded from every aggregate reported here; Run 2 (a memorized interruption pattern instead of a read-aloud script) has no such outlier. Fence latency is dominated by how long the user's own interrupting phrase takes to say + transcribe, not raw cancellation (`cancelCurrent()` is synchronous). Recovery latency — LiveKit Inference LLM round-trip + Rime TTS time-to-first-audio — is the real optimization target and is slower than we'd like; reported as measured, not tuned away before reporting.
 
 Rime pronunciation: 44 infrastructure terms rendered through the shipped `coda:celeste` WebSocket path in three variants each (plain / hand-respelled / **the shipped `applyLexicon` output**) — clips + comparison table in `apps/agent/src/bench/pronunciation/REPORT.md`. `RIME_SAVE_OOVS=true` logs Rime's out-of-vocabulary words for a real session.
 
