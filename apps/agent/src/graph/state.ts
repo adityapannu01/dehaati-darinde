@@ -18,6 +18,7 @@ export const MutationPlan = z.object({
         'replaceComponent',
         'renameComponent',
         'removeComponent',
+        'groupComponents',
         'clearCanvas',
       ]),
       args: z.record(z.string(), z.string()),

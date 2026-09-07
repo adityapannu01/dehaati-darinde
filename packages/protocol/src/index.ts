@@ -25,12 +25,28 @@ export interface CanvasEdge {
   bidirectional?: boolean | undefined;
 }
 
+/**
+ * A boundary drawn around a set of nodes — a VPC, a trust boundary, a bounded
+ * context (§3.2). Its box is derived from its members' positions by the agent,
+ * never authored.
+ */
+export interface CanvasGroup {
+  id: string;
+  label: string;
+  memberIds: string[];
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface CanvasSnapshot {
   /** Monotonic; the browser drops any snapshot whose version is not greater than the last it rendered. */
   version: number;
   generation: number;
   nodes: CanvasNode[];
   edges: CanvasEdge[];
+  groups: CanvasGroup[];
 }
 
 export type MutationOp =
@@ -40,6 +56,8 @@ export type MutationOp =
   | { op: 'replaceNode'; nodeId: string; label: string; kind: NodeKind }
   | { op: 'addEdge'; edge: CanvasEdge }
   | { op: 'removeEdge'; edgeId: string }
+  /** Draw a boundary around existing components (§3.2). */
+  | { op: 'addGroup'; id: string; label: string; memberIds: string[] }
   /** Wipe every node and edge in a single atomic step (see clearCanvas tool). */
   | { op: 'clear' };
 

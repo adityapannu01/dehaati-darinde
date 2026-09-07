@@ -6,6 +6,7 @@ import { useSessionContext } from '@livekit/components-react';
 import {
   CARTOGRAPH_TOPIC,
   type CanvasEdge,
+  type CanvasGroup,
   type CanvasNode,
   type FormingElement,
   type GhostElement,
@@ -39,6 +40,8 @@ export interface FormingState extends FormingElement {
 export interface UseCartographReturn {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
+  /** §3.2: boundaries drawn around sets of nodes. */
+  groups: CanvasGroup[];
   events: LedgerEvent[];
   status: CartographStatus | undefined;
   /** Elements the agent has staged for the current turn but not yet committed. */
@@ -56,6 +59,7 @@ export function useCartograph(): UseCartographReturn {
   const { room } = useSessionContext();
   const [nodes, setNodes] = useState<CanvasNode[]>([]);
   const [edges, setEdges] = useState<CanvasEdge[]>([]);
+  const [groups, setGroups] = useState<CanvasGroup[]>([]);
   const [events, setEvents] = useState<LedgerEvent[]>([]);
   const [status, setStatus] = useState<CartographStatus | undefined>(undefined);
   const [forming, setForming] = useState<FormingState[]>([]);
@@ -94,6 +98,7 @@ export function useCartograph(): UseCartographReturn {
           lastVersion.current = msg.snapshot.version;
           setNodes(msg.snapshot.nodes);
           setEdges(msg.snapshot.edges);
+          setGroups(msg.snapshot.groups ?? []);
           break;
         case 'events':
           setEvents((prev) => [...prev, ...msg.events].slice(-MAX_EVENTS));
@@ -158,7 +163,7 @@ export function useCartograph(): UseCartographReturn {
     };
   }, [room]);
 
-  return { nodes, edges, events, status, forming, ghosts };
+  return { nodes, edges, groups, events, status, forming, ghosts };
 }
 
 /**

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import type { CanvasEdge, CanvasNode, GhostElement, NodeKind } from '@repo/protocol';
+import type { CanvasEdge, CanvasGroup, CanvasNode, GhostElement, NodeKind } from '@repo/protocol';
 import type { FormingState } from '@/hooks/use-cartograph';
 import {
   Background,
@@ -170,7 +170,52 @@ function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
   );
 }
 
-const nodeTypes = { cartographNode: CartographNodeView };
+interface CartographGroupData extends Record<string, unknown> {
+  label: string;
+  width: number;
+  height: number;
+}
+
+/**
+ * §3.2: a labelled boundary (VPC, trust boundary, bounded context). Sits behind
+ * its members, non-interactive; the agent owns its box (derived from member
+ * positions), so it just renders what it's given.
+ */
+function CartographGroupView({ data }: NodeProps<Node<CartographGroupData>>) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: DUR.base }}
+      style={{
+        width: data.width,
+        height: data.height,
+        border: '1.5px dashed var(--muted-foreground)',
+        borderRadius: 12,
+        background: 'color-mix(in oklch, var(--muted-foreground) 6%, transparent)',
+        pointerEvents: 'none',
+      }}
+    >
+      <span
+        style={{
+          position: 'absolute',
+          top: -9,
+          left: 12,
+          padding: '0 6px',
+          fontSize: 10,
+          letterSpacing: '0.06em',
+          textTransform: 'uppercase',
+          color: 'var(--muted-foreground)',
+          background: 'var(--background)',
+        }}
+      >
+        {data.label}
+      </span>
+    </motion.div>
+  );
+}
+
+const nodeTypes = { cartographNode: CartographNodeView, cartographGroup: CartographGroupView };
 
 interface CartographEdgeData extends Record<string, unknown> {
   flow?: 'sync' | 'async';
@@ -274,6 +319,8 @@ const edgeTypes = { cartographEdge: CartographEdgeView };
 interface ArchitectureCanvasProps {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
+  /** §3.2: boundaries drawn around sets of nodes. */
+  groups?: CanvasGroup[];
   /** §3.3: staged-but-uncommitted elements, drawn "forming". */
   forming?: FormingState[];
   /** §2.4: ambient proposals overheard from the room, drawn "ghost". */
@@ -302,6 +349,7 @@ export function ArchitectureCanvas(props: ArchitectureCanvasProps) {
 function ArchitectureCanvasInner({
   nodes,
   edges,
+  groups = [],
   forming = [],
   ghosts = [],
   className,
@@ -366,6 +414,17 @@ function ArchitectureCanvasInner({
   );
 
   const flowNodes: Node[] = useMemo(() => {
+    // §3.2: groups first so they render behind every component.
+    const groupLayer: Node[] = groups.map((g) => ({
+      id: `group-${g.id}`,
+      type: 'cartographGroup',
+      position: { x: g.x, y: g.y },
+      data: { label: g.label, width: g.width, height: g.height },
+      draggable: false,
+      selectable: false,
+      focusable: false,
+      zIndex: -1,
+    }));
     const live: Node<CartographNodeData>[] = nodes.map((n) => ({
       id: n.id,
       type: 'cartographNode',
@@ -439,8 +498,8 @@ function ArchitectureCanvasInner({
           proposedBy: g.proposedBy,
         },
       }));
-    return [...live, ...exiting, ...formingRow, ...ghostRow];
-  }, [nodes, justArrived, removingNodes, formingNodes, ghosts, committedIds]);
+    return [...groupLayer, ...live, ...exiting, ...formingRow, ...ghostRow];
+  }, [nodes, groups, justArrived, removingNodes, formingNodes, ghosts, committedIds]);
 
   const flowEdges: Edge[] = useMemo(
     () =>

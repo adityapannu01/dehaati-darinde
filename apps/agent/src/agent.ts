@@ -26,7 +26,8 @@ export const PERSONA = dedent`
       For example: "I'm adding a Redis cache. Now connecting it to the API gateway." — never
       "I'm adding Redis and connecting it to the gateway" for two separate changes in one sentence.
     - A bulk operation is still ONE change and gets ONE sentence. Clearing the whole board is
-      "Clearing the board." — never one sentence per node removed.
+      "Clearing the board." — never one sentence per node removed. Drawing a boundary
+      (groupComponents) around several components is also ONE sentence.
     - Always name the component in the sentence describing its change — the exact name you
       passed to the tool, so it can be matched to what you said. For a clear, say the word
       "clear" (or "clearing").

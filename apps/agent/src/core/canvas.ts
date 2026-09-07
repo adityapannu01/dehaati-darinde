@@ -1,4 +1,4 @@
-import type { CanvasEdge, CanvasNode, CanvasSnapshot, MutationOp } from '@repo/protocol';
+import type { CanvasEdge, CanvasGroup, CanvasNode, CanvasSnapshot, MutationOp } from '@repo/protocol';
 
 // The agent-side source of truth for the shared architecture diagram.
 // Mutations only ever arrive here through CommitGate, once Rime has actually
@@ -6,10 +6,15 @@ import type { CanvasEdge, CanvasNode, CanvasSnapshot, MutationOp } from '@repo/p
 
 const LAYOUT_COLUMNS = 4;
 const LAYOUT_SPACING = 220;
+// Padding between a group boundary and its outermost members (§3.2).
+const GROUP_PADDING = 28;
+const NODE_W = 160;
+const NODE_H = 46;
 
 export class CanvasStore {
   private nodes = new Map<string, CanvasNode>();
   private edges = new Map<string, CanvasEdge>();
+  private groups = new Map<string, Omit<CanvasGroup, 'x' | 'y' | 'width' | 'height'>>();
   private version = 0;
   // B5: placement index must only ever increment. Deriving it from nodes.size
   // meant that removing a node then adding one reused an occupied grid slot and
@@ -28,6 +33,12 @@ export class CanvasStore {
           if (edge.source === m.nodeId || edge.target === m.nodeId) {
             this.edges.delete(edgeId);
           }
+        }
+        // Drop it from any group; drop groups left empty.
+        for (const [gid, g] of this.groups) {
+          const members = g.memberIds.filter((id) => id !== m.nodeId);
+          if (members.length === 0) this.groups.delete(gid);
+          else this.groups.set(gid, { ...g, memberIds: members });
         }
         break;
       }
@@ -52,13 +63,34 @@ export class CanvasStore {
       case 'removeEdge':
         this.edges.delete(m.edgeId);
         break;
+      case 'addGroup': {
+        const memberIds = m.memberIds.filter((id) => this.nodes.has(id));
+        if (memberIds.length > 0) this.groups.set(m.id, { id: m.id, label: m.label, memberIds });
+        break;
+      }
       case 'clear':
         this.nodes.clear();
         this.edges.clear();
+        this.groups.clear();
         this.placements = 0;
         break;
     }
     this.version += 1;
+  }
+
+  /** Group boxes derived from current member positions — never authored. */
+  private groupBoxes(): CanvasGroup[] {
+    const out: CanvasGroup[] = [];
+    for (const g of this.groups.values()) {
+      const members = g.memberIds.map((id) => this.nodes.get(id)).filter((n): n is CanvasNode => !!n);
+      if (members.length === 0) continue;
+      const minX = Math.min(...members.map((n) => n.x)) - GROUP_PADDING;
+      const minY = Math.min(...members.map((n) => n.y)) - GROUP_PADDING - 14; // room for the label
+      const maxX = Math.max(...members.map((n) => n.x + NODE_W)) + GROUP_PADDING;
+      const maxY = Math.max(...members.map((n) => n.y + NODE_H)) + GROUP_PADDING;
+      out.push({ ...g, x: minX, y: minY, width: maxX - minX, height: maxY - minY });
+    }
+    return out;
   }
 
   /**
@@ -89,6 +121,7 @@ export class CanvasStore {
       generation,
       nodes: Array.from(this.nodes.values(), (n) => ({ ...n })),
       edges: Array.from(this.edges.values(), (e) => ({ ...e })),
+      groups: this.groupBoxes(),
     };
   }
 
@@ -118,6 +151,10 @@ export class CanvasStore {
       const source = this.nodes.get(e.source)?.label ?? e.source;
       const target = this.nodes.get(e.target)?.label ?? e.target;
       lines.push(`- ${source} -> ${target}${e.label ? ` (${e.label})` : ''}`);
+    }
+    for (const g of this.groups.values()) {
+      const members = g.memberIds.map((id) => this.nodes.get(id)?.label ?? id);
+      lines.push(`- boundary "${g.label}" contains: ${members.join(', ')}`);
     }
     return lines.join('\n');
   }

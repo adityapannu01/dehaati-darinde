@@ -226,6 +226,39 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
     },
   });
 
+  const groupComponents = tool({
+    name: 'groupComponents',
+    description:
+      'Draw a labelled boundary around two or more existing components — a VPC, a trust boundary, a bounded context, a subsystem. The box tracks its members automatically.',
+    parameters: z.object({
+      label: z.string().describe('The boundary name, e.g. "VPC", "Payments domain", "DMZ".'),
+      // Array on the direct path; a "a, b and c" string on the graph path (its
+      // args are all strings). Both are accepted.
+      memberLabels: z
+        .union([z.array(z.string()), z.string()])
+        .describe('The existing components inside the boundary (2 or more).'),
+      sentenceIndex: sentenceIndexParam,
+    }),
+    execute: async ({ label, memberLabels, sentenceIndex }) => {
+      const gen = deps.gm.currentId;
+      if (!deps.gm.isCurrent(gen)) {
+        deps.ledger.push('tool_stale_discarded', gen, `groupComponents(${label})`);
+        return 'STALE_DISCARDED: this instruction was superseded. Do not mention this result.';
+      }
+      const members = Array.isArray(memberLabels)
+        ? memberLabels
+        : memberLabels.split(/\s*,\s*|\s+and\s+/).filter(Boolean);
+      deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), label, {
+        op: 'addGroup',
+        id: slug(label),
+        label,
+        memberIds: members.map(slug),
+      });
+      deps.ledger.push('tool_completed', gen, `groupComponents(${label})`);
+      return `Staged: a "${label}" boundary around ${members.join(', ')} once you have said so.`;
+    },
+  });
+
   const clearCanvas = tool({
     name: 'clearCanvas',
     description:
@@ -262,6 +295,7 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
     replaceComponent,
     renameComponent,
     removeComponent,
+    groupComponents,
     clearCanvas,
     describeArchitecture,
   ];

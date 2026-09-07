@@ -112,6 +112,36 @@ describe('CanvasStore', () => {
     expect(new CanvasStore().summary()).toBe('(empty)');
   });
 
+  it('§3.2: addGroup boxes its members, tracks them, and drops when emptied', () => {
+    const store = new CanvasStore();
+    for (const id of ['a', 'b', 'c']) {
+      store.apply({ op: 'addNode', node: { ...node(id, id.toUpperCase()), x: 100, y: 100 } });
+    }
+    store.apply({ op: 'addGroup', id: 'vpc', label: 'VPC', memberIds: ['a', 'b'] });
+
+    let snap = store.snapshot(1);
+    expect(snap.groups).toHaveLength(1);
+    expect(snap.groups[0]).toMatchObject({ label: 'VPC', memberIds: ['a', 'b'] });
+    expect(snap.groups[0]!.width).toBeGreaterThan(0);
+    expect(store.summary()).toContain('boundary "VPC" contains: A, B');
+
+    store.apply({ op: 'removeNode', nodeId: 'a' });
+    snap = store.snapshot(2);
+    expect(snap.groups[0]!.memberIds).toEqual(['b']);
+
+    store.apply({ op: 'removeNode', nodeId: 'b' });
+    expect(store.snapshot(3).groups).toHaveLength(0); // emptied -> gone
+  });
+
+  it('§3.2: addGroup ignores unknown member ids and no-ops if none exist', () => {
+    const store = new CanvasStore();
+    store.apply({ op: 'addNode', node: node('a', 'A') });
+    store.apply({ op: 'addGroup', id: 'g', label: 'G', memberIds: ['a', 'ghost'] });
+    expect(store.snapshot(1).groups[0]!.memberIds).toEqual(['a']);
+    store.apply({ op: 'addGroup', id: 'g2', label: 'G2', memberIds: ['nope'] });
+    expect(store.snapshot(2).groups).toHaveLength(1);
+  });
+
   it('summary lists node labels/kinds and edges by resolved label', () => {
     const store = new CanvasStore();
     store.apply({ op: 'addNode', node: node('api', 'API Gateway') });

@@ -39,7 +39,7 @@ interface ViewControllerProps {
 
 export function ViewController({ appConfig }: ViewControllerProps) {
   const { isConnected, start } = useSessionContext();
-  const { nodes, edges, events, status, forming, ghosts } = useCartograph();
+  const { nodes, edges, groups, events, status, forming, ghosts } = useCartograph();
   const lastToastedSeq = useRef(0);
 
   // A stale tool result being rejected in real time is the money shot —
@@ -81,6 +81,7 @@ export function ViewController({ appConfig }: ViewControllerProps) {
           <ArchitectureCanvas
             nodes={nodes}
             edges={edges}
+            groups={groups}
             forming={forming}
             ghosts={ghosts}
             className="absolute inset-0"
