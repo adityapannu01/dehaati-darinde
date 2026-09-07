@@ -142,6 +142,7 @@ export default defineAgent({
     function publishGhosts(): void {
       if (!addressivityEnabled) return;
       void publisher?.send({ kind: 'ghosts', ghosts: proposals.list() });
+      pushStatus();
     }
 
     /**
@@ -208,6 +209,9 @@ export default defineAgent({
         heardText: commitGate.heardText,
         spokenText: commitGate.spokenText,
         pendingText: commitGate.pendingText,
+        addressivity: addressivityEnabled
+          ? { enabled: true, threshold: addressivityThreshold, ghostCount: proposals.list().length }
+          : { enabled: false },
       });
     }
 

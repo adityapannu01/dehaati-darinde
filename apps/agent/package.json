@@ -17,7 +17,8 @@
     "start": "node src/main.ts start",
     "benchmark": "node src/bench/report.ts",
     "pronunciation": "node src/bench/pronunciation/run.ts",
-    "latency": "node src/bench/latency.ts"
+    "latency": "node src/bench/latency.ts",
+    "addressivity": "node src/bench/addressivity-fixture.ts"
   },
   "engines": {
     "node": ">=18.0.0"

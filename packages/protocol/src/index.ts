@@ -158,6 +158,11 @@ export type ServerMessage =
       spokenText: string;
       /** Generated text beyond spokenText — not yet heard. Empty, never wrong, if the two can't be reconciled. */
       pendingText: string;
+      /** §2: ambient meeting mode state, when ADDRESSIVITY is on. */
+      addressivity?:
+        | { enabled: true; threshold: number; ghostCount: number }
+        | { enabled: false }
+        | undefined;
     };
 
 export const CARTOGRAPH_TOPIC = 'cartograph';

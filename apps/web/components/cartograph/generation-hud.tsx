@@ -87,6 +87,20 @@ export function GenerationHud({ status, className }: GenerationHudProps) {
           />
           {status?.toolRunning ? 'running' : 'idle'}
         </dd>
+
+        {status?.addressivity?.enabled && (
+          <>
+            <dt className="text-muted-foreground">ambient</dt>
+            <dd className="flex items-center gap-1">
+              <span
+                className="inline-block h-2 w-2 rounded-full"
+                style={{ backgroundColor: 'var(--state-staged)' }}
+              />
+              τ={status.addressivity.threshold.toFixed(2)} · {status.addressivity.ghostCount} ghost
+              {status.addressivity.ghostCount === 1 ? '' : 's'}
+            </dd>
+          </>
+        )}
       </dl>
       <div className="text-muted-foreground mt-2 border-t pt-2">
         <div className="mb-1">heard</div>
