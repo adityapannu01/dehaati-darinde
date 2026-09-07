@@ -29,6 +29,9 @@ export interface CartographStatus {
   addressivity?:
     | { enabled: true; threshold: number; ghostCount: number }
     | { enabled: false };
+  language?:
+    | { enabled: true; code: string; name: string; speaker: string; degradedTiming: boolean }
+    | { enabled: false };
 }
 
 /** A staged-but-uncommitted element plus whether its naming word has been spoken yet (§3.3). */
@@ -159,6 +162,7 @@ export function useCartograph(): UseCartographReturn {
             spokenText: msg.spokenText,
             pendingText: msg.pendingText,
             addressivity: msg.addressivity,
+            language: msg.language,
           });
           break;
       }

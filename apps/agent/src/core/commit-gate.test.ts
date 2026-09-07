@@ -103,6 +103,22 @@ describe('CommitGate', () => {
     expect(committedEvent?.detail).not.toContain('anchor_mismatch');
   });
 
+  // §3.3 — a respelled term must NOT trip the anchor mismatch flag
+  it('normalises both sides through the lexicon: a component named "nginx" commits without anchor_mismatch', () => {
+    const { canvas, ledger, gate } = build();
+    gate.startGeneration();
+    // The tool anchor is the real spelling; Rime echoes back the RESPELLED words.
+    gate.stage(1, 0, 'nginx', addNode('nginx', 'nginx'));
+
+    // "I'm adding engine ex." — what Rime actually spoke, post-lexicon.
+    let i = 0;
+    for (const w of ["I'm", ' adding', ' engine', ' ex.']) gate.onWord(1, word(w, i++));
+
+    expect(canvas.nodeCount).toBe(1);
+    const committed = ledger.all().find((e) => e.type === 'mutation_committed');
+    expect(committed?.detail).not.toContain('anchor_mismatch');
+  });
+
   it('pendingText is the generated text beyond what has been spoken', () => {
     const { gate } = build();
     gate.startGeneration();

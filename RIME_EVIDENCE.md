@@ -45,9 +45,41 @@ The 3 backchannel-during-narration scenarios (46) guard the B1 fix: a "mm-hmm" m
 
 Live interruption/recovery latency (fence latency, recovery latency): **not yet measured** — instrumented (`[latency]` log lines) with a parser (`pnpm --filter DD_agent latency < agent.log`), pending a real captured session per `live-latency.md`. No numbers are invented in the meantime.
 
-Rime pronunciation: 44 infrastructure terms rendered through the shipped `coda:celeste` WebSocket path in two spellings each — clips + wording table in `apps/agent/src/bench/pronunciation/`. `saveOovs: true` is now on so Rime logs the words it guessed at.
+Rime pronunciation: 44 infrastructure terms rendered through the shipped `coda:celeste` WebSocket path in three variants each (plain / hand-respelled / **the shipped `applyLexicon` output**) — clips + comparison table in `apps/agent/src/bench/pronunciation/REPORT.md`. `RIME_SAVE_OOVS=true` logs Rime's out-of-vocabulary words for a real session.
 
-`pnpm test` (~202 tests across core engine, tools, commit gate, transport, benchmark, planner/graph, layout, turn-taking, addressivity/proposals/ambient, the real slow tool, and the agent evals): **all passing** as of this commit.
+`pnpm test` (~218 tests across core engine, tools, commit gate, transport, benchmark, planner/graph, layout, turn-taking, addressivity/proposals/ambient, language router, lexicon, the real slow tool, and the agent evals): **all passing** as of this commit.
+
+## 4a. Multilingual & pronunciation (MULTILINGUAL_AND_PRONUNCIATION.md)
+
+**§0 gate spike (recorded, not committed as code).** Synthesised 3-sentence strings through the shipped Coda WebSocket plugin in English, Hindi (`nadi`) and Japanese (`akatsuki`), logging every aligned word:
+
+| Language | audio frames | words with `startTime`/`endTime` |
+|---|--:|--:|
+| English (`eng` / celeste) | 78 | **17** |
+| Hindi (`hin` / nadi) | 92 | **0** |
+| Japanese (`jpn` / akatsuki) | 96 | **0** |
+
+**Rime Coda returns word-level timestamps only for English.** Non-English audio synthesises fine, but the commit gate has no per-sentence delivery signal. Per the plan's §2.7, multilingual therefore ships in **degraded mode** for non-English: mutations commit on `onTurnComplete` (turn granularity) rather than per sentence, and an interruption drops everything still pending. The HUD shows `degraded timing` when a non-English voice is active. English keeps the full per-sentence gate.
+
+**Disclosure matrix** (PS p.2 — exact model/speaker/lang/transport, now a matrix):
+
+| Language | Rime model | Speaker | `lang` | Word timestamps | Commit gate | Tested |
+|---|---|---|---|---|---|---|
+| English | coda | celeste | eng | **yes** (17/17 verified) | per-sentence | **yes** |
+| Hindi | coda | nadi | hin | no (0 verified) | degraded (onTurnComplete) | **yes** |
+| Spanish | coda | brisa | spa | not verified | degraded | no |
+| French | coda | aurelie | fra | not verified | degraded | no |
+| German | coda | lorelei | ger | not verified | degraded | no |
+| Italian | coda | livia | ita | not verified | degraded | no |
+| Japanese | coda | akatsuki | jpn | no (0 verified) | degraded | no |
+| Portuguese | coda | estela | por | not verified | degraded | no |
+| Arabic | coda | layla | ara | not verified | degraded | no |
+
+Endpoint `wss://users-ws.rime.ai/ws3?...` · PCM 24 kHz mono · WebSocket, all languages. Speakers picked for demographic continuity with `celeste` (Female / Young Adult) where a match exists — see `apps/agent/src/voices.ts`. **This trades against a persistent voice identity: no Coda voice crosses languages, so the agent audibly becomes a different person on a switch. Matched demographics soften it; they don't remove it.**
+
+Code-switching: `universal-3-5-pro` *understands* mixed-language input natively; the agent *replies* in the dominant language of the turn, technical nouns in Latin script. It cannot speak a mixed-language reply — one Rime request binds one speaker to one language.
+
+**Pronunciation.** Coda has no inline phonemes (Mist v2 only, and Mist v2 has no word timestamps), so respelling the text sent to Rime is the only lever. The lexicon (`core/lexicon.ts`) is applied at the `ttsNode` tap — after the model produces correct text, before Rime — buffered to sentence boundaries so a term can't split across a chunk. Both sides of the commit gate's anchor check are normalised through the same lexicon, so a respelled term never trips `anchor_mismatch` (regression-tested). The STT gets the same term list via `keyterms_prompt` so recognition biases toward "nginx"/"etcd" too.
 
 ## 5. Limitations
 
@@ -56,7 +88,8 @@ Rime pronunciation: 44 infrastructure terms rendered through the shipped `coda:c
 - Commit granularity is per-sentence, not per-word.
 - With a slow tool, a mutation commits when the tool completes (the catch-up path), not at the instant its sentence ends — heard-correct, but not visually instantaneous. `SLOW_TOOL_MS` defaults to `0` outside the interruption stress demo so the two coincide.
 - 48 generated scenarios + 1 hand-scripted out-of-order case are not a production traffic distribution — they exercise the specific race the commit gate closes, not general robustness. The generator matrix is parametric (`apps/agent/src/bench/scenarios.ts`) rather than 100 hand-authored scripts, trading raw scenario count for higher confidence that each generated case is actually correct.
-- Single-room scale; no multi-agent handoffs, telephony, or multilingual routing.
+- Single-room scale; no multi-agent handoffs or telephony.
+- Multilingual (`RIME_MULTILINGUAL=true`): non-English runs in degraded commit mode (see §4a — Coda gives no non-English word timestamps). `eng` + `hin` tested; the other 7 Coda languages configured but unverified. Not a translation feature — the agent replies in the room's language, it does not translate.
 - Live interruption/recovery latency has not yet been measured — see §4. A parser (`pnpm --filter DD_agent latency`) turns a captured session log into the table.
 - Ambient meeting mode (`ADDRESSIVITY=true`) is unvalidated with two live browser tabs — the classifier, proposal store and safety invariant (scenarios 47/48) are unit-tested and audio-independent, but the multi-participant STT subscription has not run against real audio. Classifier F1 on the synthetic fixture: salient 0.92, addressed precision 1.0 / recall 0.30.
 - Two-tab render sync (§5.2) is expected to work (`publishData` is a room broadcast) but has not been recorded.

@@ -8,6 +8,7 @@ import { chatStream } from './graph/nodes/chat.ts';
 import { planProgressive } from './graph/nodes/plan.ts';
 import { routeNode } from './graph/nodes/route.ts';
 import type { CanvasStateT } from './graph/state.ts';
+import { applyLexicon } from './core/lexicon.ts';
 import type { CanvasToolsDeps } from './tools/canvas-tools.ts';
 
 export interface SpokenWord {
@@ -187,10 +188,32 @@ export class CanvasAgent extends voice.Agent {
     modelSettings: ModelSettings,
   ): Promise<ReadableStream<AudioFrame> | null> {
     const streamGeneration = this.deps.gm.currentId;
+    // §3.2: the pronunciation lexicon is applied HERE — after the model has
+    // produced correct text, before Rime sees it. onGeneratedChunk still gets
+    // the ORIGINAL text (the transcript/ledger/pending-strip keep real
+    // spellings); only the audio-bound branch is respelled.
+    //
+    // The tap sees chunks, not sentences, and a term can straddle a chunk
+    // boundary ("ngi"+"nx"), so buffer to a sentence terminator before
+    // applying the lexicon and releasing — this also matches how the commit
+    // gate already thinks (in sentences).
+    let buffer = '';
+    const SENTENCE_END = /[.!?।॥。？！؟]/;
     const tap = new TransformStream<string, string>({
       transform: (chunk, controller) => {
         this.onGeneratedChunk(streamGeneration, chunk);
-        controller.enqueue(chunk);
+        buffer += chunk;
+        let m: RegExpMatchArray | null;
+        while ((m = buffer.match(SENTENCE_END)) && m.index !== undefined) {
+          const end = m.index + 1;
+          const sentence = buffer.slice(0, end);
+          buffer = buffer.slice(end);
+          controller.enqueue(applyLexicon(sentence));
+        }
+      },
+      flush: (controller) => {
+        if (buffer) controller.enqueue(applyLexicon(buffer));
+        buffer = '';
       },
     });
 

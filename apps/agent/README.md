@@ -157,8 +157,10 @@ It uses `turbo prune` to isolate the agent and its workspace dependencies, then 
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Always required |
 | `AGENT_NAME` | Must match the frontend's dispatch name (`DD_agent`) |
 | `TTS_PROVIDER` | `rime` (default), `rime-plugin`, or `fishaudio` |
-| `RIME_MODEL`, `RIME_VOICE`, `RIME_LANGUAGE`, `RIME_SPEED` | Optional Rime tuning (see `.env.example`) |
+| `RIME_MODEL`, `RIME_VOICE`, `RIME_LANGUAGE`, `RIME_SPEED` | Optional Rime tuning (see `.env.example`). `RIME_VOICE`/`RIME_LANGUAGE` are the default/fallback when multilingual is on |
 | `RIME_API_KEY` | **Only** when `TTS_PROVIDER=rime-plugin` |
+| `RIME_MULTILINGUAL` | `true` = detect language per turn, swap speaker/lang between turns. Non-English is degraded (no per-sentence commit gate — see `RIME_EVIDENCE.md §4a`) |
+| `RIME_SAVE_OOVS` | `true` logs Rime's out-of-vocabulary words — a pronunciation-harness diagnostic, off in production |
 | `LLM_ENGINE`, `GRAPH_LLM_MODEL`, `GRAPH_STRUCTURED_METHOD` | `direct` (default) or `graph` — the LangGraph planner |
 | `SLOW_TOOL_MS` | Synthetic staging delay (default `0`); the deterministic benchmark fixture |
 | `CARTOGRAPH_BASELINE` | `true` disables fencing + the commit gate (naive-agent comparison) |

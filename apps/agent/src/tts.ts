@@ -11,6 +11,12 @@ export interface TTSSelection {
   hasWordTimestamps: boolean;
   /** Shown in the UI: the active speech provider must be observable, not just documented. */
   describe: string;
+  /**
+   * Swap the Rime speaker + language for the next synthesis (§2.4). Only the
+   * direct Coda plugin can do this; undefined on the other paths, which also
+   * means multilingual is a no-op there. Call between turns, never mid-utterance.
+   */
+  updateLanguage?: (lang3: string, speaker: string) => void;
 }
 
 function env(name: string, fallback: string): string {
@@ -73,29 +79,29 @@ export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTS
           'TTS_PROVIDER=rime-plugin requires RIME_API_KEY in apps/agent/.env.local',
         );
       }
+      const rimeTts = new rime.TTS({
+        // Pass the key explicitly: the plugin otherwise snapshots
+        // process.env.RIME_API_KEY at its own module-load time.
+        apiKey,
+        modelId: model,
+        speaker: voice,
+        lang: language3,
+        // REQUIRED: without this, synthesis is non-streaming chunked and
+        // alignedTranscript is false — the commit gate has nothing to key off.
+        useWebsocket: true,
+        // Log out-of-vocabulary words Rime had to guess at (§4.3). Default off —
+        // it is a diagnostic for pronunciation-harness runs, not production.
+        saveOovs: env('RIME_SAVE_OOVS', 'false').toLowerCase() === 'true',
+        // NOTE: speedAlpha is ignored on coda (use timeScaleFactor there); and
+        // timeScaleFactor throws on mistv2 (use speedAlpha there). Only sent if RIME_SPEED is set.
+        ...rimePluginSpeedOption(model),
+      });
       return {
-        tts: new rime.TTS({
-          // Pass the key explicitly: the plugin otherwise snapshots
-          // process.env.RIME_API_KEY at its own module-load time.
-          apiKey,
-          modelId: model,
-          speaker: voice,
-          lang: language3,
-          // REQUIRED: without this, synthesis is non-streaming chunked and
-          // alignedTranscript is false — the commit gate has nothing to key off.
-          useWebsocket: true,
-          // Log out-of-vocabulary words Rime had to guess at. For this project
-          // infrastructure vocabulary IS the content (nginx, etcd, PostgreSQL,
-          // gRPC…), and it's exactly what TTS mangles — so surface what Rime
-          // doesn't know instead of guessing. See bench/pronunciation/ (§4.3).
-          saveOovs: true,
-          // NOTE: speedAlpha is ignored on coda (use timeScaleFactor there); and
-          // timeScaleFactor throws on mistv2 (use speedAlpha there). Only sent if RIME_SPEED is set.
-          ...rimePluginSpeedOption(model),
-        }),
+        tts: rimeTts,
         supportsExpressive: false,
         hasWordTimestamps: true,
         describe: `Rime ${model}:${voice} (WebSocket, PCM 24kHz mono)`,
+        updateLanguage: (lang3, speaker) => rimeTts.updateOptions({ lang: lang3, speaker }),
       };
     }
 
