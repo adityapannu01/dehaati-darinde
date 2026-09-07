@@ -110,7 +110,10 @@ export class CanvasAgent extends voice.Agent {
         // (and its tool call handed to LiveKit) the instant that mutation is
         // complete, while later ones in the plan are still generating.
         const { plan, valid } = await planProgressive(state, config, (m, i) => {
-          controller.enqueue(`${m.sentence} `); // spoken -> drives CommitGate
+          // Tool call first, sentence second (F4): the tool then starts a few
+          // milliseconds *before* the text it narrates begins synthesising,
+          // rather than after — biasing the stage-vs-delivery race the right
+          // way so the mutation lands with its sentence, not a beat behind.
           controller.enqueue({
             id: `plan-${i}`,
             delta: {
@@ -119,11 +122,15 @@ export class CanvasAgent extends voice.Agent {
                 llm.FunctionCall.create({
                   callId: `call-${i}`,
                   name: m.tool,
-                  args: JSON.stringify({ ...m.args, anchorPhrase: m.anchorPhrase }),
+                  // sentenceIndex (F2): the planner already knows the true
+                  // sentence<->mutation pairing — send it so the tool doesn't
+                  // fall back to a completion-order counter.
+                  args: JSON.stringify({ ...m.args, anchorPhrase: m.anchorPhrase, sentenceIndex: i }),
                 }),
               ],
             },
           } satisfies llm.ChatChunk); // executed by LiveKit -> fenced
+          controller.enqueue(`${m.sentence} `); // spoken -> drives CommitGate
         });
 
         // A validation failure here means mutations may already have been

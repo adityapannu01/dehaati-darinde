@@ -47,6 +47,21 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
     return n;
   };
 
+  // The graph planner (LLM_ENGINE=graph) knows the true sentence<->mutation
+  // pairing and passes it in; tools then execute concurrently without the
+  // per-generation counter mis-assigning indices in tool-completion order
+  // rather than spoken order. On the direct path this is always absent and
+  // the counter (the only ordering signal there — the model's own call
+  // order) takes over.
+  const sentenceIndexParam = z
+    .number()
+    .int()
+    .min(0)
+    .optional()
+    .describe('Internal ordering index supplied by the planner. Do not invent a value; leave it unset.');
+  const resolveSentenceIndex = (generation: number, supplied: number | undefined): number =>
+    supplied ?? nextSentenceIndex(generation);
+
   const addService = tool({
     name: 'addService',
     description:
@@ -54,8 +69,9 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
     parameters: z.object({
       label: z.string().describe('The name of the component, e.g. "Redis Cache" or "API Gateway".'),
       kind: nodeKindSchema.describe('The category of component.'),
+      sentenceIndex: sentenceIndexParam,
     }),
-    execute: async ({ label, kind }, opts) => {
+    execute: async ({ label, kind, sentenceIndex }, opts) => {
       const gen = deps.gm.currentId;
       deps.ledger.push('tool_started', gen, `addService(${label})`);
       try {
@@ -69,7 +85,7 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
         return 'STALE_DISCARDED: this instruction was superseded. Do not mention this result.';
       }
       const { x, y } = deps.canvas.nextLayout();
-      deps.commitGate.stage(gen, nextSentenceIndex(gen), label, {
+      deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), label, {
         op: 'addNode',
         node: { id: slug(label), label, kind: kind as NodeKind, x, y },
       });
@@ -85,8 +101,9 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
       sourceLabel: z.string().describe('The component the connection starts from.'),
       targetLabel: z.string().describe('The component the connection points to.'),
       label: z.string().optional().describe('Optional label for the connection, e.g. "reads/writes".'),
+      sentenceIndex: sentenceIndexParam,
     }),
-    execute: async ({ sourceLabel, targetLabel, label }, opts) => {
+    execute: async ({ sourceLabel, targetLabel, label, sentenceIndex }, opts) => {
       const gen = deps.gm.currentId;
       const anchor = `${sourceLabel} -> ${targetLabel}`;
       deps.ledger.push('tool_started', gen, `connectServices(${anchor})`);
@@ -102,7 +119,7 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
       }
       const sourceId = slug(sourceLabel);
       const targetId = slug(targetLabel);
-      deps.commitGate.stage(gen, nextSentenceIndex(gen), targetLabel, {
+      deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), targetLabel, {
         op: 'addEdge',
         edge: { id: `${sourceId}-${targetId}`, source: sourceId, target: targetId, label },
       });
@@ -119,8 +136,9 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
       targetLabel: z.string().describe('The existing component to replace.'),
       newLabel: z.string().describe('The new name for the component.'),
       kind: nodeKindSchema.describe('The category of the replacement component.'),
+      sentenceIndex: sentenceIndexParam,
     }),
-    execute: async ({ targetLabel, newLabel, kind }, opts) => {
+    execute: async ({ targetLabel, newLabel, kind, sentenceIndex }, opts) => {
       const gen = deps.gm.currentId;
       const anchor = `${targetLabel} -> ${newLabel}`;
       deps.ledger.push('tool_started', gen, `replaceComponent(${anchor})`);
@@ -134,7 +152,7 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
         deps.ledger.push('tool_stale_discarded', gen, `replaceComponent(${anchor})`);
         return 'STALE_DISCARDED: this instruction was superseded. Do not mention this result.';
       }
-      deps.commitGate.stage(gen, nextSentenceIndex(gen), newLabel, {
+      deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), newLabel, {
         op: 'replaceNode',
         nodeId: slug(targetLabel),
         label: newLabel,
@@ -155,14 +173,15 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
     parameters: z.object({
       targetLabel: z.string().describe('The existing component to rename.'),
       newLabel: z.string().describe('The new name.'),
+      sentenceIndex: sentenceIndexParam,
     }),
-    execute: async ({ targetLabel, newLabel }) => {
+    execute: async ({ targetLabel, newLabel, sentenceIndex }) => {
       const gen = deps.gm.currentId;
       if (!deps.gm.isCurrent(gen)) {
         deps.ledger.push('tool_stale_discarded', gen, `renameComponent(${targetLabel})`);
         return 'STALE_DISCARDED: this instruction was superseded. Do not mention this result.';
       }
-      deps.commitGate.stage(gen, nextSentenceIndex(gen), newLabel, {
+      deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), newLabel, {
         op: 'renameNode',
         nodeId: slug(targetLabel),
         label: newLabel,
@@ -176,14 +195,15 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
     description: 'Remove a component and every connection touching it.',
     parameters: z.object({
       targetLabel: z.string().describe('The component to remove.'),
+      sentenceIndex: sentenceIndexParam,
     }),
-    execute: async ({ targetLabel }) => {
+    execute: async ({ targetLabel, sentenceIndex }) => {
       const gen = deps.gm.currentId;
       if (!deps.gm.isCurrent(gen)) {
         deps.ledger.push('tool_stale_discarded', gen, `removeComponent(${targetLabel})`);
         return 'STALE_DISCARDED: this instruction was superseded. Do not mention this result.';
       }
-      deps.commitGate.stage(gen, nextSentenceIndex(gen), targetLabel, {
+      deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), targetLabel, {
         op: 'removeNode',
         nodeId: slug(targetLabel),
       });

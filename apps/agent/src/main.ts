@@ -47,7 +47,11 @@ export default defineAgent({
     const ledger = new EventLedger();
     const canvas = new CanvasStore();
     const commitGate = new CommitGate({ canvas, staging, ledger, baselineMode });
-    const slowMs = Number(env('SLOW_TOOL_MS', '5000'));
+    // 0 on the normal/judged path — a 5s artificial delay per edit both loses
+    // the staging-vs-delivery race (mutations batch at turn end instead of
+    // landing with their sentence) and is just bad product. Set SLOW_TOOL_MS
+    // explicitly for the interruption stress demo and the benchmark.
+    const slowMs = Number(env('SLOW_TOOL_MS', '0'));
 
     // Bootstrap generation 1 for the initial greeting below, which has no
     // preceding user turn to open one via UserInputTranscribed.

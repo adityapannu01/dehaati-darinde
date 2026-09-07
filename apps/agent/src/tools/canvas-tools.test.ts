@@ -14,8 +14,10 @@ function setup(slowMs = 20) {
   const commitGate = new CommitGate({ canvas, staging, ledger });
   const tools = createCanvasTools({ gm, commitGate, ledger, canvas, slowMs });
   const addService = tools.find((t) => t.name === 'addService');
+  const connectServices = tools.find((t) => t.name === 'connectServices');
   if (!addService || addService.type !== 'function') throw new Error('addService not found');
-  return { gm, staging, ledger, canvas, addService };
+  if (!connectServices || connectServices.type !== 'function') throw new Error('connectServices not found');
+  return { gm, staging, ledger, canvas, addService, connectServices };
 }
 
 // Tool.execute exists on function tools but isn't part of the narrow `Tool` union type
@@ -81,5 +83,33 @@ describe('canvas tools fencing contract', () => {
     const pending = staging.pendingFor(g1.id);
     expect(pending).toHaveLength(1);
     expect(pending[0]?.mutation).toMatchObject({ op: 'addNode', node: { id: 'redis', label: 'Redis' } });
+  });
+
+  // F2 — plan-supplied sentenceIndex
+  it('honors a plan-supplied sentenceIndex regardless of tool-completion order', async () => {
+    const { gm, staging, addService, connectServices } = setup(1);
+    const g1 = gm.start('add redis and wire it up');
+    const sig = new AbortController().signal;
+
+    // connectServices resolves first but carries the later index; addService
+    // resolves second but carries index 0.
+    await callExecute(connectServices, { sourceLabel: 'API', targetLabel: 'Redis', sentenceIndex: 1 }, { abortSignal: sig });
+    await callExecute(addService, { label: 'Redis', kind: 'datastore', sentenceIndex: 0 }, { abortSignal: sig });
+
+    const byIndex = Object.fromEntries(
+      staging.pendingFor(g1.id).map((s) => [s.mutation.op, s.sentenceIndex]),
+    );
+    expect(byIndex).toEqual({ addNode: 0, addEdge: 1 });
+  });
+
+  it('falls back to the internal counter when sentenceIndex is absent', async () => {
+    const { gm, staging, addService } = setup(1);
+    const g1 = gm.start('add two');
+    const sig = new AbortController().signal;
+
+    await callExecute(addService, { label: 'Redis', kind: 'datastore' }, { abortSignal: sig });
+    await callExecute(addService, { label: 'Mongo', kind: 'datastore' }, { abortSignal: sig });
+
+    expect(staging.pendingFor(g1.id).map((s) => s.sentenceIndex)).toEqual([0, 1]);
   });
 });
