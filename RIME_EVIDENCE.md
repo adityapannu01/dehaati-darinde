@@ -43,6 +43,8 @@ Measured 2026-09-07, this repo, `pnpm --filter DD_agent benchmark`:
 
 The 3 backchannel-during-narration scenarios (46) guard the B1 fix: a "mm-hmm" mid-sentence must not roll the generation and orphan the mutation whose sentence is still being spoken. `runner.test.ts` also runs the pre-fix always-fence path and asserts it *does* orphan — so the scenario has teeth.
 
+**A dependency this project relies on but does not itself implement, now pinned by a test.** Live testing found the turn detector sometimes finalizes a multi-item instruction mid-list ("Add an API Gateway." as its own turn, before "and an auth service and a database."). Cartograph's own code does nothing to stitch the two transcripts together — `main.ts`'s `UserInputTranscribed` handler passes only the latest turn's text to the generation that stages tool calls. What recovers the full instruction is LiveKit's own chat context: the earlier turn stays in history, so the next LLM call sees the whole conversation and completes it. That worked in manual testing, which is not the same as proven — `agent.test.ts` now runs this exact two-turn split against the real LLM and asserts both items land, so a future LiveKit version that stops carrying an interrupted turn's context forward would fail this test rather than silently regress.
+
 Live interruption/recovery latency, measured 2026-09-08 across **two independent real sessions** (full unedited tables, both runs, in [`live-latency.md`](apps/agent/src/bench/live-latency.md)):
 
 | Leg | Run 1 median | Run 2 median | p95 range |

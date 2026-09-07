@@ -1,6 +1,6 @@
 import { dedent, inference, initializeLogger, voice } from '@livekit/agents';
 import dotenv from 'dotenv';
-import { afterEach, beforeEach, describe, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createAgent } from './agent.ts';
 import { CanvasStore } from './core/canvas.ts';
 import { CommitGate } from './core/commit-gate.ts';
@@ -111,4 +111,48 @@ describe('agent evaluation', () => {
         `,
       });
   });
+
+  /**
+   * Live behaviour observed 2026-09-08: the turn detector sometimes finalizes
+   * "Add an API Gateway." as its own turn mid-list, before the user reaches
+   * "and an auth service and a database." main.ts's UserInputTranscribed
+   * handler (`gm.start(ev.transcript)`) passes ONLY the latest turn's text to
+   * the generation that actually stages tool calls — Cartograph does nothing
+   * itself to stitch the two transcripts together. What recovered the full
+   * instruction in manual testing was LiveKit's own chat context: the first
+   * turn (and the agent's reply to it) stay in history, so the second turn's
+   * LLM call sees the whole conversation and can complete it.
+   *
+   * That's a real mechanism, but it was never actually tested — it worked
+   * twice in manual sessions, which is not the same as proven. This pins it
+   * down: two sequential turns on the same session, the second an incomplete
+   * continuation of the first, and assert the second turn's tool calls cover
+   * both new items. If a future LiveKit version stops carrying an interrupted
+   * turn's context forward, this is what catches it.
+   */
+  it(
+    'a two-turn split of a multi-item instruction still adds every item (depends on LiveKit chat context, not Cartograph code)',
+    { timeout: 30000, retry: 2 },
+    async () => {
+      await session.run({ userInput: 'Add an API Gateway.' }).wait();
+
+      const second = await session
+        .run({ userInput: 'And an auth service and a Postgres database.' })
+        .wait();
+
+      const addServiceLabels = second.events
+        .filter((e) => e.type === 'function_call' && e.item.name === 'addService')
+        .map((e) => {
+          const args = JSON.parse((e as { item: { args: string } }).item.args) as {
+            label: string;
+          };
+          return args.label.toLowerCase();
+        });
+
+      expect(addServiceLabels.some((l) => l.includes('auth'))).toBe(true);
+      expect(addServiceLabels.some((l) => l.includes('postgres') || l.includes('database'))).toBe(
+        true,
+      );
+    },
+  );
 });
