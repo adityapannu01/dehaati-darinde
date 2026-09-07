@@ -10,6 +10,7 @@ import {
   EdgeLabelRenderer,
   type EdgeProps,
   Handle,
+  MarkerType,
   type Node,
   type NodeProps,
   Position,
@@ -20,6 +21,8 @@ import {
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import { useReducedMotion } from 'motion/react';
+import { Icon } from '@iconify/react';
+import { iconForLabel } from '@/lib/cartograph/icon-for-label';
 import { DUR, SPRING } from '@/lib/motion';
 import { cn } from '@/lib/shadcn/utils';
 
@@ -51,6 +54,7 @@ interface CartographNodeData extends Record<string, unknown> {
  */
 function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
   const color = KIND_COLORS[data.kind];
+  const icon = useMemo(() => iconForLabel(data.label), [data.label]);
   const prevLabel = useRef(data.label);
   const [justReplaced, setJustReplaced] = useState(false);
 
@@ -120,7 +124,18 @@ function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 4 }}
           transition={{ duration: DUR.base }}
+          style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
         >
+          {icon && (
+            <Icon
+              icon={icon}
+              width={15}
+              height={15}
+              style={{ flexShrink: 0 }}
+              // A missing/unknown icon just renders nothing — the kind border colour still reads.
+              onError={() => undefined}
+            />
+          )}
           {data.label}
         </motion.span>
       </AnimatePresence>
@@ -130,11 +145,19 @@ function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
 
 const nodeTypes = { cartographNode: CartographNodeView };
 
+interface CartographEdgeData extends Record<string, unknown> {
+  flow?: 'sync' | 'async';
+  bidirectional?: boolean;
+}
+
 /**
  * Draws the connection on rather than just showing it — stroke-dashoffset
  * animates from the path's own length to 0 once, then settles to a static
  * stroke. A screen full of permanently-animating edges would be noise; a
  * new one being wired up as you watch is the point.
+ *
+ * Edge semantics (§3.2): `flow: 'async'` settles to a dashed stroke (a
+ * queue/event link); `bidirectional` adds a start arrowhead.
  */
 function CartographEdgeView({
   id,
@@ -145,7 +168,11 @@ function CartographEdgeView({
   targetY,
   targetPosition,
   label,
+  data,
+  markerEnd,
+  markerStart,
 }: EdgeProps) {
+  const flow = (data as CartographEdgeData | undefined)?.flow;
   const [path, labelX, labelY] = getBezierPath({
     sourceX,
     sourceY,
@@ -168,6 +195,21 @@ function CartographEdgeView({
     // not on every unrelated parent re-render.
   }, [path]);
 
+  // While drawing on: one dash the length of the path, offset animating to 0.
+  // Once drawn: solid for a sync edge, a repeating dash pattern for async.
+  const strokeStyle: React.CSSProperties =
+    length === null
+      ? { opacity: 0 }
+      : !drawn
+        ? {
+            strokeDasharray: length,
+            strokeDashoffset: length,
+            transition: `stroke-dashoffset ${DUR.slow}s ease-out`,
+          }
+        : flow === 'async'
+          ? { strokeDasharray: '6 5', strokeDashoffset: 0, transition: `stroke-dashoffset ${DUR.slow}s ease-out` }
+          : { strokeDasharray: length, strokeDashoffset: 0, transition: `stroke-dashoffset ${DUR.slow}s ease-out` };
+
   return (
     <>
       <path
@@ -177,15 +219,9 @@ function CartographEdgeView({
         fill="none"
         stroke="var(--muted-foreground)"
         strokeWidth={1.5}
-        style={
-          length !== null
-            ? {
-                strokeDasharray: length,
-                strokeDashoffset: drawn ? 0 : length,
-                transition: `stroke-dashoffset ${DUR.slow}s ease-out`,
-              }
-            : { opacity: 0 }
-        }
+        markerEnd={markerEnd}
+        markerStart={markerStart}
+        style={strokeStyle}
       />
       {label && (
         <EdgeLabelRenderer>
@@ -314,6 +350,18 @@ function ArchitectureCanvasInner({ nodes, edges, className }: ArchitectureCanvas
         source: e.source,
         target: e.target,
         label: e.label,
+        data: { flow: e.flow, bidirectional: e.bidirectional },
+        markerEnd: { type: MarkerType.ArrowClosed, width: 16, height: 16, color: 'var(--muted-foreground)' },
+        ...(e.bidirectional
+          ? {
+              markerStart: {
+                type: MarkerType.ArrowClosed,
+                width: 16,
+                height: 16,
+                color: 'var(--muted-foreground)',
+              },
+            }
+          : {}),
       })),
     [edges]
   );

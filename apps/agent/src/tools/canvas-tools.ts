@@ -100,10 +100,18 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
     parameters: z.object({
       sourceLabel: z.string().describe('The component the connection starts from.'),
       targetLabel: z.string().describe('The component the connection points to.'),
-      label: z.string().optional().describe('Optional label for the connection, e.g. "reads/writes".'),
+      label: z.string().optional().describe('Optional label for the connection, e.g. "reads/writes", "gRPC", "publishes".'),
+      flow: z
+        .enum(['sync', 'async'])
+        .optional()
+        .describe('"async" for a queue/event/pub-sub connection (drawn dashed); "sync" (default) for a request/response call.'),
+      bidirectional: z
+        .boolean()
+        .optional()
+        .describe('true if data flows both ways (drawn with arrowheads at both ends).'),
       sentenceIndex: sentenceIndexParam,
     }),
-    execute: async ({ sourceLabel, targetLabel, label, sentenceIndex }, opts) => {
+    execute: async ({ sourceLabel, targetLabel, label, flow, bidirectional, sentenceIndex }, opts) => {
       const gen = deps.gm.currentId;
       const anchor = `${sourceLabel} -> ${targetLabel}`;
       deps.ledger.push('tool_started', gen, `connectServices(${anchor})`);
@@ -121,7 +129,14 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
       const targetId = slug(targetLabel);
       deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), targetLabel, {
         op: 'addEdge',
-        edge: { id: `${sourceId}-${targetId}`, source: sourceId, target: targetId, label },
+        edge: {
+          id: `${sourceId}-${targetId}`,
+          source: sourceId,
+          target: targetId,
+          label,
+          ...(flow ? { flow: flow as 'sync' | 'async' } : {}),
+          ...(bidirectional ? { bidirectional: true } : {}),
+        },
       });
       deps.ledger.push('tool_completed', gen, `connectServices(${anchor})`);
       return `Staged: connection ${anchor} will appear once you have said so.`;

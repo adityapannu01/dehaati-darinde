@@ -6,7 +6,8 @@ const PLAN_PROMPT = `You are the planning stage of Cartograph, a voice-controlle
 
 Available tools and their exact argument names:
 - addService: { label: string, kind: "service"|"datastore"|"queue"|"gateway"|"external" }
-- connectServices: { sourceLabel: string, targetLabel: string, label?: string }
+- connectServices: { sourceLabel: string, targetLabel: string, label?: string, flow?: "sync"|"async" }
+  ("async" for a queue / event / pub-sub link, drawn dashed; omit for a normal call)
 - replaceComponent: { targetLabel: string, newLabel: string, kind: "service"|"datastore"|"queue"|"gateway"|"external" }
 - renameComponent: { targetLabel: string, newLabel: string }
 - removeComponent: { targetLabel: string }

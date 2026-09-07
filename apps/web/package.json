@@ -16,6 +16,7 @@
     "shadcn:install": "pnpm dlx shadcn@latest add --yes @agents-ui/all && pnpm format"
   },
   "dependencies": {
+    "@iconify/react": "^6.0.2",
     "@livekit/components-react": "^2.9.20",
     "@livekit/protocol": "1.48.0",
     "@phosphor-icons/react": "^2.1.8",

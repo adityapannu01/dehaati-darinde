@@ -112,6 +112,34 @@ describe('canvas tools fencing contract', () => {
     expect(byIndex).toEqual({ addNode: 0, addEdge: 1 });
   });
 
+  it('carries edge semantics (flow / bidirectional) onto the staged addEdge (§3.2)', async () => {
+    const { gm, staging, connectServices } = setup(1);
+    const g1 = gm.start('wire the queue');
+    const sig = new AbortController().signal;
+
+    await callExecute(
+      connectServices,
+      { sourceLabel: 'Orders', targetLabel: 'Kafka', flow: 'async', bidirectional: true },
+      { abortSignal: sig },
+    );
+
+    const edge = staging.pendingFor(g1.id)[0]?.mutation;
+    expect(edge).toMatchObject({ op: 'addEdge', edge: { flow: 'async', bidirectional: true } });
+  });
+
+  it('omits flow/bidirectional when not supplied — a plain sync edge', async () => {
+    const { gm, staging, connectServices } = setup(1);
+    const g1 = gm.start('connect them');
+    await callExecute(
+      connectServices,
+      { sourceLabel: 'A', targetLabel: 'B' },
+      { abortSignal: new AbortController().signal },
+    );
+    const edge = staging.pendingFor(g1.id)[0]?.mutation as { edge: Record<string, unknown> };
+    expect(edge.edge).not.toHaveProperty('flow');
+    expect(edge.edge).not.toHaveProperty('bidirectional');
+  });
+
   it('falls back to the internal counter when sentenceIndex is absent', async () => {
     const { gm, staging, addService } = setup(1);
     const g1 = gm.start('add two');

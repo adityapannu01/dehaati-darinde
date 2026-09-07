@@ -11,11 +11,18 @@ export interface CanvasNode {
   y: number;
 }
 
+/** How a connection behaves — drives the stroke style in the renderer. */
+export type EdgeFlow = 'sync' | 'async';
+
 export interface CanvasEdge {
   id: string;
   source: string;
   target: string;
   label?: string | undefined;
+  /** 'async' renders dashed (a queue/event edge); 'sync' (default) renders solid. */
+  flow?: EdgeFlow | undefined;
+  /** true renders arrowheads at both ends. */
+  bidirectional?: boolean | undefined;
 }
 
 export interface CanvasSnapshot {
