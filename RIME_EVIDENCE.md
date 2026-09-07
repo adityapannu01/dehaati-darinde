@@ -23,7 +23,7 @@ Pass condition: 0% canvas divergence and 0% stale mutations for all four cases w
 pnpm --filter DD_agent benchmark
 ```
 
-Runs 45 deterministically generated scenarios (`toolDelay × interruptAt × corrections`, 3×5×3) plus the explicit out-of-order case, each once with fencing on and once with `CARTOGRAPH_BASELINE=true`, against an independent oracle (`apps/agent/src/bench/oracle.ts`) that re-derives the expected canvas from only the heard-sentence counts — sharing no code with the commit gate it's checking. The same invariant is asserted directly in `apps/agent/src/bench/runner.test.ts`, so `pnpm test` catches a regression here too, not only a human reading the printed table.
+Runs 48 deterministically generated scenarios (`toolDelay × interruptAt × corrections`, 3×5×3, plus 3 backchannel-during-narration cases — the B1 regression guard) plus the explicit out-of-order case, each once with fencing on and once with `CARTOGRAPH_BASELINE=true`, against an independent oracle (`apps/agent/src/bench/oracle.ts`) that re-derives the expected canvas from only the heard-sentence counts — sharing no code with the commit gate it's checking. The same invariant is asserted directly in `apps/agent/src/bench/runner.test.ts`, so `pnpm test` catches a regression here too, not only a human reading the printed table.
 
 The commit itself fires **as each sentence is delivered**, not once at end of turn: `CommitGate.onWord` commits every staged mutation whose sentence has just cleared, and a mutation that stages *after* its sentence was already spoken (a slow tool) commits immediately on a catch-up path rather than waiting for `onTurnComplete`. So the canvas matches the heard transcript continuously through the turn, not only at its end.
 
@@ -31,18 +31,23 @@ Live interruption/recovery timing: manual procedure in [`apps/agent/src/bench/li
 
 ## 4. Results
 
-Measured 2026-09-05, this repo, `pnpm --filter DD_agent benchmark`:
+Measured 2026-09-07, this repo, `pnpm --filter DD_agent benchmark`:
 
 | Metric | Cartograph (fencing on) | Baseline (`CARTOGRAPH_BASELINE=true`) |
 |---|---|---|
-| Canvas divergence rate | **0.0%** (0/45) | 86.7% (39/45) |
-| Stale mutation rate (of landed mutations) | **0.0%** | 50.0% |
+| Canvas divergence rate | **0.0%** (0/48) | 81.3% (39/48) |
+| Stale mutation rate (of landed mutations) | **0.0%** | 48.2% |
 | Out-of-order (1→3→2) resolved correctly | **yes** | no |
+| Orphaned mutations (staged, never committed or dropped) | **0** | 0 |
 | Fence latency (interruption → generation cancelled) | N/A in the synchronous harness | see live-latency.md |
 
-Live interruption/recovery latency (fence latency, recovery latency): **not yet measured** — pending the manual procedure in `live-latency.md`. This report will be updated with real numbers once that run happens; no numbers are invented in the meantime.
+The 3 backchannel-during-narration scenarios (46) guard the B1 fix: a "mm-hmm" mid-sentence must not roll the generation and orphan the mutation whose sentence is still being spoken. `runner.test.ts` also runs the pre-fix always-fence path and asserts it *does* orphan — so the scenario has teeth.
 
-`pnpm test` (130 tests across core engine, tools, commit gate, transport, benchmark, planner/graph, and 3 agent evals): **all passing** as of this commit.
+Live interruption/recovery latency (fence latency, recovery latency): **not yet measured** — instrumented (`[latency]` log lines) with a parser (`pnpm --filter DD_agent latency < agent.log`), pending a real captured session per `live-latency.md`. No numbers are invented in the meantime.
+
+Rime pronunciation: 44 infrastructure terms rendered through the shipped `coda:celeste` WebSocket path in two spellings each — clips + wording table in `apps/agent/src/bench/pronunciation/`. `saveOovs: true` is now on so Rime logs the words it guessed at.
+
+`pnpm test` (~159 tests across core engine, tools, commit gate, transport, benchmark, planner/graph, layout, turn-taking, and the agent evals): **all passing** as of this commit.
 
 ## 5. Limitations
 
@@ -50,7 +55,7 @@ Live interruption/recovery latency (fence latency, recovery latency): **not yet 
 - The anchor-phrase mismatch guard is a warning on the event ledger, not a block — a genuine mismatch still commits, deliberately, so a monitoring feature can't become a live-demo failure.
 - Commit granularity is per-sentence, not per-word.
 - With a slow tool, a mutation commits when the tool completes (the catch-up path), not at the instant its sentence ends — heard-correct, but not visually instantaneous. `SLOW_TOOL_MS` defaults to `0` outside the interruption stress demo so the two coincide.
-- 45 generated scenarios + 1 hand-scripted out-of-order case are not a production traffic distribution — they exercise the specific race the commit gate closes, not general robustness. The generator matrix is parametric (`apps/agent/src/bench/scenarios.ts`) rather than 100 hand-authored scripts, trading raw scenario count for higher confidence that each generated case is actually correct.
+- 48 generated scenarios + 1 hand-scripted out-of-order case are not a production traffic distribution — they exercise the specific race the commit gate closes, not general robustness. The generator matrix is parametric (`apps/agent/src/bench/scenarios.ts`) rather than 100 hand-authored scripts, trading raw scenario count for higher confidence that each generated case is actually correct.
 - Single-room scale; no multi-agent handoffs, telephony, or multilingual routing.
 - Live interruption/recovery latency has not yet been measured — see §4.
 

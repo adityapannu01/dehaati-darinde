@@ -53,9 +53,12 @@ browser mic → LiveKit room → DD_agent worker
                           browser: @xyflow/react renderer
 ```
 
-- **Generational Conversation Control** (`apps/agent/src/core/generation.ts`): every user turn gets a monotonic generation id. Interrupting fences the old one immediately — `AbortController` cancellation, plus a fencing check every async result re-validates before it's allowed to touch state.
-- **Heard-State Commit Gate** (`apps/agent/src/core/commit-gate.ts`): tools never mutate the canvas directly. They stage a mutation; it only reaches the canvas once Rime has actually delivered the sentence describing it (per word-level timestamps). Interrupt mid-sentence and the undelivered mutation is dropped, permanently.
+- **Generational Conversation Control** (`apps/agent/src/core/generation.ts`): every user turn gets a monotonic generation id. Interrupting fences the old one immediately — `AbortController` cancellation, plus a fencing check every async result re-validates before it's allowed to touch state. A backchannel ("mm-hmm", "yeah") is classified in `apps/agent/src/core/turn-taking.ts` and does **not** roll the generation — LiveKit's adaptive interruption keeps the agent talking through it, and so do we, so the mutation whose sentence is still being spoken is never orphaned.
+- **Heard-State Commit Gate** (`apps/agent/src/core/commit-gate.ts`): tools never mutate the canvas directly. They stage a mutation; it only reaches the canvas once Rime has actually delivered the sentence describing it (per word-level timestamps). Interrupt mid-sentence and the undelivered mutation is dropped, permanently. Every staged mutation ends in exactly one terminal state (committed or dropped) — `orphanedMutationIds` asserts silent orphaning is impossible, and the benchmark checks it on every scenario.
 - **Canvas Divergence Oracle** (`apps/agent/src/bench/oracle.ts`): independently re-derives the expected canvas from only the heard transcript and diffs it against the actual canvas — turns "state matches what was heard" into a pass/fail with a number.
+- **Layered layout** (`apps/agent/src/core/layout.ts`): the agent recomputes an ELK `layered` layout after every committed mutation and re-publishes node positions; the browser animates nodes to their new places. The agent stays the sole owner of positions.
+- **Word-synced forming nodes** (`{ kind: 'word' | 'staging' }` on the data channel): Rime's aligned word timestamps are forwarded to the browser, and a staged-but-uncommitted node renders "forming" (dashed, translucent) — firming up as the word naming it is spoken, going solid when its sentence commits it.
+- **Pronunciation harness** (`apps/agent/src/bench/pronunciation/`): 44 infrastructure terms rendered through the shipped `coda:celeste` WebSocket path in two spellings each, with `saveOovs` on. Clips + a wording table are committed; `pnpm --filter DD_agent pronunciation` regenerates.
 
 ## Setup
 
@@ -85,7 +88,9 @@ Open http://localhost:3000, click **Start call**, and describe an architecture o
 pnpm --filter DD_agent benchmark
 ```
 
-Runs 45 deterministic scenarios (a `toolDelay x interruptAt x corrections` matrix) plus an explicit out-of-order case, twice each — once with fencing on, once with `CARTOGRAPH_BASELINE`'s naive behaviour — against an independent oracle. No LiveKit, no audio, no LLM: pure TypeScript, reproducible on any machine. See [`RIME_EVIDENCE.md`](RIME_EVIDENCE.md) for the actual measured numbers.
+Runs 48 deterministic scenarios (a `toolDelay x interruptAt x corrections` matrix, plus 3 backchannel-during-narration cases) plus an explicit out-of-order case, twice each — once with fencing on, once with `CARTOGRAPH_BASELINE`'s naive behaviour — against an independent oracle. Also reports the orphaned-mutation count (always 0). No LiveKit, no audio, no LLM: pure TypeScript, reproducible on any machine. See [`RIME_EVIDENCE.md`](RIME_EVIDENCE.md) for the actual measured numbers.
+
+Live interruption/recovery latency: `pnpm --filter DD_agent dev 2>&1 | tee /tmp/agent.log`, hold a call with ~20 real interruptions, then `pnpm --filter DD_agent latency < /tmp/agent.log` — see [`apps/agent/src/bench/live-latency.md`](apps/agent/src/bench/live-latency.md).
 
 ## Third-party services
 
@@ -101,12 +106,15 @@ The aesthetic layer copies component source (not a runtime dependency) from:
 
 ## Known limitations
 
-- Read-only/reversible tools only (brainstorm §26): no purchases, deletes, or emails — an irreversible external effect can't be meaningfully fenced.
+- Read-only/reversible tools only (brainstorm §26): no purchases, deletes, or emails — an irreversible external effect can't be meaningfully fenced. `clearCanvas` is destructive-looking but fully reversible (re-describe the diagram) and gated on its own sentence like any mutation.
 - The anchor-phrase mismatch guard is a warning surfaced on the event ledger, not a block: a genuine mismatch still commits, because a hard block would turn a monitoring feature into a live-demo failure.
-- Commit granularity is per-sentence, not per-word: a mutation lands once its whole describing sentence is confirmed delivered.
+- Commit granularity is per-sentence, not per-word: a mutation lands once its whole describing sentence is confirmed delivered. The "forming node" reveal is per-word, but that's a *preview* of the in-progress sentence — the committed canvas still only ever reflects fully-heard sentences.
 - Commit timing is a race between a tool finishing its work and its sentence being spoken. It resolves correctly from either side — if the tool stages first the sentence commits it, if the sentence lands first the tool commits on the catch-up path — but the *visual* tightness (a node appearing exactly as its sentence ends, not a beat later) depends on tools being fast, which is why `SLOW_TOOL_MS` defaults to `0` outside the interruption stress demo.
-- The 45 generated benchmark scenarios plus one hand-scripted out-of-order case are not a production traffic distribution — they exercise the specific race the commit gate is built to close, not general robustness.
+- The 48 generated benchmark scenarios plus one hand-scripted out-of-order case are not a production traffic distribution — they exercise the specific race the commit gate is built to close, not general robustness.
+- A backchannel is classified lexically (`core/turn-taking.ts`) with a 2-word floor matching `turnHandling.interruption.minWords`. A single-word command that isn't in the hard-interrupt list ("stop", "wait", "no", "actually", …) — e.g. "bigger" — is treated as a backchannel and won't fence until the user says more.
+- Live interruption/recovery latency is instrumented (`[latency]` log lines + `pnpm --filter DD_agent latency`) but **not yet measured** — see `apps/agent/src/bench/live-latency.md`.
 - Single-room scale; no multi-agent handoffs, no telephony, no multilingual routing (all cut deliberately — seeded in `IMPLEMENTATION_PLAN.md §2.3`, not rebuilt here since it isn't committed to the repo).
+- No addressivity model yet: the agent binds to one participant and treats every final transcript from them as directed at it. "Leave it running in a meeting" (`TECHNICAL_REVIEW.md §2`) is not built.
 - `apps/web`'s text-chat input is not wired to trigger agent turns in this starter — voice is the only input path exercised end-to-end.
 
 ## Failure behaviour

@@ -16,7 +16,8 @@
     "dev": "node src/main.ts dev",
     "start": "node src/main.ts start",
     "benchmark": "node src/bench/report.ts",
-    "pronunciation": "node src/bench/pronunciation/run.ts"
+    "pronunciation": "node src/bench/pronunciation/run.ts",
+    "latency": "node src/bench/latency.ts"
   },
   "engines": {
     "node": ">=18.0.0"

@@ -20,20 +20,29 @@ The deterministic benchmark (`pnpm benchmark`) proves correctness — canvas div
 
 ## Procedure
 
-1. `TTS_PROVIDER=rime-plugin pnpm dev:agent` and `pnpm dev:web` (or `pnpm dev` for both).
-2. Open the browser, start a call, and hold a real conversation with real interruptions — not scripted single-word cuts. A natural rhythm: let the agent start describing a component, cut in mid-sentence with a correction, repeat.
-3. **Run 20 real interruptions.** For each: from the agent's log, take `generation_cancelled.t - user_speech_start.t` (detection + fence latency) and, for the *next* turn, `first_audio_frame.t - generation_cancelled.t` (recovery latency — how long until the new turn is audible).
-4. Record every raw pair in the table below. Do not discard outliers without saying so.
-5. Report median and p95 separately for both legs, and note whether the run was on a warm connection (subsequent turns) or cold (first turn after connect) — cold includes model/connection warm-up and will skew latency high; label it and don't average it into the warm numbers.
-6. Distinguish network latency (LiveKit region distance to the client) from model latency (STT/LLM/TTS processing) where possible — the LiveKit dashboard's per-session metrics can help separate these if the aggregate number looks off.
+1. Capture the worker log while holding a real call:
+   ```bash
+   pnpm --filter DD_agent dev 2>&1 | tee /tmp/agent.log   # + pnpm dev:web in another shell
+   ```
+2. Start a call and hold a real conversation with real interruptions — not scripted single-word cuts. Natural rhythm: let the agent start describing a component, cut in mid-sentence with a correction, repeat. **Run 20 real interruptions.**
+3. Parse the log into the table:
+   ```bash
+   pnpm --filter DD_agent latency < /tmp/agent.log
+   ```
+   It pairs `user_speech_start → generation_cancelled` (fence latency) and `generation_cancelled → next first_audio_frame` (recovery latency), and prints per-interruption rows plus median / p95 / min / max for both legs.
+4. Paste the parser's output into the Results section below. Do not discard outliers without saying so.
+5. The **first** interruption after connect is cold (model/connection warm-up) — label it and exclude it from the warm medians; the parser prints a reminder.
+6. If the aggregate looks off, separate network latency (LiveKit region distance — this project's worker registers in `India South`) from model latency (STT/LLM/TTS) using the LiveKit dashboard's per-session metrics.
 
-## Results (fill in after running the procedure)
+## Results (paste `pnpm --filter DD_agent latency` output here)
 
-| # | user_speech_start | generation_cancelled | fence latency (ms) | first_audio_frame (next turn) | recovery latency (ms) | warm/cold | notes |
-|---|---|---|---|---|---|---|---|
-| 1 | | | | | | | |
-| ... | | | | | | | |
-| 20 | | | | | | | |
+**Status: not yet run.** No numbers are reported until a real session is captured and parsed.
 
-**Fence latency** — median: _pending_, p95: _pending_
-**Recovery latency** — median: _pending_, p95: _pending_
+| # | fence latency (ms) | recovery latency (ms) | warm/cold | notes |
+|--:|--:|--:|---|---|
+| 1 | | | cold | first turn after connect |
+| … | | | | |
+| 20 | | | | |
+
+**Fence latency** (warm) — median: _pending_, p95: _pending_
+**Recovery latency** (warm) — median: _pending_, p95: _pending_
