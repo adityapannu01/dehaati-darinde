@@ -9,13 +9,18 @@ import { CanvasStore } from './core/canvas.ts';
 import { CommitGate } from './core/commit-gate.ts';
 import { GenerationManager } from './core/generation.ts';
 import type { LedgerEvent } from '@repo/protocol';
+import { AmbientListener } from './core/ambient-listener.ts';
+import type { AddressivityContext } from './core/addressivity.ts';
+import { classifyUtterance, route } from './core/addressivity.ts';
 import { EventLedger } from './core/ledger.ts';
 import { layoutCanvas } from './core/layout.ts';
+import { ProposalStore } from './core/proposals.ts';
 import { StagingBuffer } from './core/staging.ts';
 import { isBackchannel } from './core/turn-taking.ts';
 import { CanvasPublisher } from './transport/publisher.ts';
 import { createTTS } from './tts.ts';
 import { resolveLLMEngine } from './graph/config.ts';
+import { makeAddressModel } from './graph/nodes/address.ts';
 
 // Minimum words in a final transcript for it to count as an interruption rather
 // than a backchannel. Wired into both turnHandling.interruption.minWords (so
@@ -34,6 +39,21 @@ dotenv.config({ path: '.env.local' });
 function env(name: string, fallback: string): string {
   const v = process.env[name];
   return v === undefined || v === '' ? fallback : v;
+}
+
+// Best-effort component name from an overheard utterance, for a ghost proposal
+// (§2). A ghost is low-stakes by design — a planner pass would give a cleaner
+// label but costs an LLM call per overheard sentence. Grabs the noun phrase
+// after an article, capped at 4 words, dropping a trailing preposition.
+const INFRA_HINT =
+  /\b(service|gateway|api|database|db|datastore|cache|queue|bus|broker|balancer|proxy|cdn|bucket|worker|cluster|node|endpoint|topic|stream|lambda|function|frontend|backend|redis|postgres|kafka|mongo|mysql|dynamo|nginx|s3|rabbitmq|sqs|sns|elasticsearch|clickhouse)\b/i;
+function ghostLabelFrom(utterance: string): string | null {
+  const m = utterance.match(/\b(?:a|an|the)\s+([A-Za-z0-9][\w-]*(?:\s+[A-Za-z0-9][\w-]*){0,3})/);
+  const phrase = m?.[1]?.replace(/\s+(in|on|to|for|from|between|behind|of|and|that)$/i, '').trim();
+  if (phrase && INFRA_HINT.test(`${phrase} ${utterance}`)) {
+    return phrase.replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  return null;
 }
 
 export default defineAgent({
@@ -63,6 +83,26 @@ export default defineAgent({
     // landing with their sentence) and is just bad product. Set SLOW_TOOL_MS
     // explicitly for the interruption stress demo and the benchmark.
     const slowMs = Number(env('SLOW_TOOL_MS', '0'));
+
+    // §2: ambient meeting mode. Off by default — it needs a two-browser-tab
+    // live check (TECHNICAL_REVIEW.md §2.2) that hasn't happened. When on, a
+    // second engineer's overheard speech can only ever create or destroy
+    // *proposals* (ghosts); committed state still changes only on addressed
+    // speech. See core/addressivity.ts + core/proposals.ts.
+    const addressivityEnabled = env('ADDRESSIVITY', 'false').toLowerCase() === 'true';
+    const addressivityThreshold = Number(env('ADDRESSIVITY_THRESHOLD', '0.6'));
+    const proposals = new ProposalStore();
+    const addressModel = addressivityEnabled ? makeAddressModel(env('GRAPH_LLM_MODEL', 'google/gemma-4-31b-it')) : undefined;
+    const recentUtterances: { speaker: string; text: string; atMs: number }[] = [];
+    let agentLastSaid: string | undefined;
+    let agentAskedQuestion = false;
+    const noteUtterance = (speaker: string, text: string): void => {
+      recentUtterances.push({ speaker, text, atMs: Date.now() });
+      const cutoff = Date.now() - 12_000;
+      while (recentUtterances.length > 12 || (recentUtterances[0] && recentUtterances[0].atMs < cutoff)) {
+        recentUtterances.shift();
+      }
+    };
 
     // Bootstrap generation 1 for the initial greeting below, which has no
     // preceding user turn to open one via UserInputTranscribed.
@@ -96,6 +136,63 @@ export default defineAgent({
       if (mySeq !== layoutSeq) return;
       if (canvas.applyLayout(placements)) {
         void publisher?.send({ kind: 'snapshot', snapshot: canvas.snapshot(gm.currentId) });
+      }
+    }
+
+    function publishGhosts(): void {
+      if (!addressivityEnabled) return;
+      void publisher?.send({ kind: 'ghosts', ghosts: proposals.list() });
+    }
+
+    /**
+     * §2: classify one overheard utterance from a non-primary participant and
+     * act on it. Never commits — the strongest thing it can do is create a
+     * proposal or reject one.
+     */
+    async function handleOverheard(speaker: string, text: string): Promise<void> {
+      noteUtterance(speaker, text);
+      const ctxForClassify: AddressivityContext = {
+        recent: recentUtterances.slice(-8),
+        agentRecentlySaid: agentLastSaid,
+        agentAskedQuestion,
+        canvasVocabulary: canvas.snapshot(0).nodes.map((n) => n.label),
+        threshold: addressivityThreshold,
+      };
+      const score = await classifyUtterance(text, ctxForClassify, addressModel);
+      const decision = route(score, addressivityThreshold);
+      ledger.push(
+        'utterance_scored',
+        gm.currentId,
+        `${speaker}: addressed=${score.addressed.toFixed(2)} salient=${score.salient.toFixed(2)} stance=${score.stance} (${score.by})`,
+      );
+
+      // A disagreement removes matching proposals — never a committed node.
+      if (score.stance === 'disagree') {
+        for (const g of proposals.rejectMatching(text)) {
+          ledger.push('proposal_rejected', gm.currentId, `${g.label} (heard "${text.slice(0, 40)}")`);
+        }
+        publishGhosts();
+      }
+
+      // Not addressed + architecture content -> a silent proposal. Overheard
+      // speech never draws on the committed canvas and never speaks (§2.7:
+      // narrating every overheard idea would be intolerable). The browser plays
+      // a soft earcon when a ghost lands.
+      if (decision.draw && !decision.speak) {
+        // Reuse the graph planner would be ideal; for the ghost we take the
+        // whole utterance as the label candidate, trimmed to a noun phrase by
+        // the classifier's own salience having already passed.
+        const label = ghostLabelFrom(text);
+        if (label) {
+          const g = proposals.propose({
+            element: 'node',
+            label,
+            proposedBy: speaker,
+            confidence: score.salient,
+          });
+          ledger.push('proposal_created', gm.currentId, `${g.label} by ${speaker}`);
+          publishGhosts();
+        }
       }
     }
 
@@ -153,6 +250,18 @@ export default defineAgent({
           generation: gm.currentId,
           elements: commitGate.formingElements(gm.currentId),
         });
+      }
+      // §2: a committed mutation supersedes any matching proposal — the primary
+      // confirmed it (or the agent drew it), so the ghost is now real.
+      if (addressivityEnabled && event.type === 'mutation_committed') {
+        let cleared = false;
+        for (const n of canvas.snapshot(0).nodes) {
+          for (const g of proposals.rejectMatching(n.label)) {
+            ledger.push('proposal_promoted', gm.currentId, `${g.label} committed`);
+            cleared = true;
+          }
+        }
+        if (cleared) publishGhosts();
       }
       if (event.type === 'tool_started') {
         toolsInFlight += 1;
@@ -258,6 +367,18 @@ export default defineAgent({
 
     session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
       if (!ev.isFinal) return;
+      // §2: keep the addressed participant's turns in the rolling context
+      // window, and let their disagreement clear a matching proposal (a
+      // primary "no, not Kafka" is as good as an overheard one).
+      if (addressivityEnabled && ev.transcript.trim()) {
+        noteUtterance('user', ev.transcript);
+        if (/\b(no|not|don'?t|scratch that|never mind|instead)\b/i.test(ev.transcript)) {
+          for (const g of proposals.rejectMatching(ev.transcript)) {
+            ledger.push('proposal_rejected', gm.currentId, `${g.label} (primary)`);
+          }
+          publishGhosts();
+        }
+      }
       // B1: a backchannel ("mm-hmm", "yeah", "right") must NOT roll the
       // generation. LiveKit's adaptive interruption already keeps the agent
       // talking through it; rolling here anyway resets the delivery tracker and
@@ -281,6 +402,11 @@ export default defineAgent({
       const item = ev.item;
       if (item.type !== 'message' || item.role !== 'assistant') return;
       const heard = item.textContent ?? '';
+      if (addressivityEnabled && heard.trim()) {
+        agentLastSaid = heard;
+        agentAskedQuestion = /\?\s*$/.test(heard.trim());
+        noteUtterance('agent', heard);
+      }
       if (item.interrupted) {
         const gen = pendingInterruptGeneration ?? gm.currentId;
         pendingInterruptGeneration = null;
@@ -342,6 +468,41 @@ export default defineAgent({
     publisher = new CanvasPublisher(ctx.room);
     void publisher.send({ kind: 'snapshot', snapshot: canvas.snapshot(gm.currentId) });
     pushStatus();
+
+    // §2.2: hear the OTHER engineers in the room. AgentSession only listens to
+    // its bound participant; this runs a separate STT stream per extra
+    // participant and routes every final transcript through the classifier.
+    // ⚠️ Not yet validated with two live browser tabs.
+    if (addressivityEnabled) {
+      logger.info(`[DD_agent] addressivity ON (τ=${addressivityThreshold})`);
+      const ambientStt = new inference.STT({ model: 'assemblyai/universal-3-5-pro', language: 'en' });
+      const listener = new AmbientListener({
+        room: ctx.room,
+        agentIdentity: ctx.room.localParticipant?.identity ?? 'agent',
+        // The participant AgentSession bound its own STT to (RoomIO internals —
+        // there's no public accessor in 1.7.1).
+        primaryIdentity: () => session._roomIO?.linkedParticipant?.identity ?? undefined,
+        makeSttStream: () => ambientStt.stream(),
+        onUtterance: ({ speaker, text }) => {
+          void handleOverheard(speaker, text).catch((err) =>
+            logger.warn(`[ambient] handleOverheard failed: ${String(err)}`),
+          );
+        },
+        logger: { info: (m) => logger.info(m), warn: (m) => logger.warn(m) },
+      });
+      listener.start();
+      const sweep = setInterval(() => {
+        const expired = proposals.expire();
+        if (expired.length > 0) {
+          for (const g of expired) ledger.push('proposal_expired', gm.currentId, g.label);
+          publishGhosts();
+        }
+      }, 5_000);
+      ctx.addShutdownCallback(async () => {
+        clearInterval(sweep);
+        listener.stop();
+      });
+    }
 
     // Greet the user on joining
     session.generateReply({

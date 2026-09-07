@@ -8,6 +8,7 @@ import {
   type CanvasEdge,
   type CanvasNode,
   type FormingElement,
+  type GhostElement,
   type LedgerEvent,
   type ServerMessage,
 } from '@repo/protocol';
@@ -39,6 +40,8 @@ export interface UseCartographReturn {
   status: CartographStatus | undefined;
   /** Elements the agent has staged for the current turn but not yet committed. */
   forming: FormingState[];
+  /** ADDRESSIVITY=true only — ambient proposals overheard from the room (§2.4). */
+  ghosts: GhostElement[];
 }
 
 /**
@@ -53,6 +56,8 @@ export function useCartograph(): UseCartographReturn {
   const [events, setEvents] = useState<LedgerEvent[]>([]);
   const [status, setStatus] = useState<CartographStatus | undefined>(undefined);
   const [forming, setForming] = useState<FormingState[]>([]);
+  const [ghosts, setGhosts] = useState<GhostElement[]>([]);
+  const ghostIds = useRef(new Set<string>());
   const lastVersion = useRef(0);
   const decoderRef = useRef<TextDecoder | undefined>(undefined);
   // Words delivered in the current generation, lowercased — used to flip a
@@ -118,6 +123,15 @@ export function useCartograph(): UseCartographReturn {
           );
           break;
         }
+        case 'ghosts': {
+          // §2.7: soft earcon when a NEW proposal lands — never speech.
+          const incoming = new Set(msg.ghosts.map((g) => g.id));
+          const isNew = msg.ghosts.some((g) => !ghostIds.current.has(g.id));
+          ghostIds.current = incoming;
+          if (isNew) playEarcon();
+          setGhosts(msg.ghosts);
+          break;
+        }
         case 'status':
           setStatus({
             generation: msg.generation,
@@ -140,5 +154,31 @@ export function useCartograph(): UseCartographReturn {
     };
   }, [room]);
 
-  return { nodes, edges, events, status, forming };
+  return { nodes, edges, events, status, forming, ghosts };
+}
+
+/**
+ * A short, soft tick — the §2.7 earcon for an ambient proposal landing.
+ * Reserving speech for addressed turns is a deliberate voice-design choice:
+ * narrating every overheard idea would be intolerable in a real meeting.
+ */
+function playEarcon(): void {
+  try {
+    const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ac = new Ctx();
+    const osc = ac.createOscillator();
+    const gain = ac.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ac.currentTime);
+    osc.frequency.exponentialRampToValueAtTime(1320, ac.currentTime + 0.06);
+    gain.gain.setValueAtTime(0.0001, ac.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.06, ac.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + 0.16);
+    osc.connect(gain).connect(ac.destination);
+    osc.start();
+    osc.stop(ac.currentTime + 0.18);
+    osc.onended = () => ac.close();
+  } catch {
+    /* audio not available (autoplay policy, no device) — the visual ghost is enough */
+  }
 }

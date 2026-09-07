@@ -69,7 +69,13 @@ export type LedgerEventType =
   /** LLM_ENGINE=graph only — see apps/agent/src/graph. */
   | 'graph_route'
   | 'graph_plan'
-  | 'graph_plan_invalid';
+  | 'graph_plan_invalid'
+  /** ADDRESSIVITY=true only — see apps/agent/src/core/addressivity.ts + proposals.ts (§2). */
+  | 'utterance_scored'
+  | 'proposal_created'
+  | 'proposal_promoted'
+  | 'proposal_rejected'
+  | 'proposal_expired';
 
 export interface LedgerEvent {
   seq: number;
@@ -93,6 +99,29 @@ export interface FormingElement {
   anchorPhrase: string;
 }
 
+/**
+ * A proposal inferred from *overheard* engineer speech (§2.4). A ghost never
+ * enters committed canvas state; it is promoted only when a human confirms it
+ * or the agent narrates it aloud, and removed by disagreement, explicit
+ * rejection, or a timeout. Safety invariant: overheard speech can only ever
+ * create or destroy proposals — committed state is changed only by addressed
+ * speech.
+ */
+export interface GhostElement {
+  id: string;
+  element: 'node' | 'edge';
+  label: string;
+  kind?: NodeKind | undefined;
+  source?: string | undefined;
+  target?: string | undefined;
+  /** Participant identity whose speech proposed this. */
+  proposedBy: string;
+  /** Classifier salience score in [0,1] at creation. */
+  confidence: number;
+  /** Date.now() when it will auto-expire if not promoted. */
+  expiresAt: number;
+}
+
 export type ServerMessage =
   | { kind: 'snapshot'; snapshot: CanvasSnapshot }
   | { kind: 'events'; events: LedgerEvent[] }
@@ -109,6 +138,12 @@ export type ServerMessage =
    * browser so the label reveal can finish exactly as the word is said.
    */
   | { kind: 'word'; generation: number; text: string; startTime?: number | undefined; endTime?: number | undefined }
+  /**
+   * ADDRESSIVITY=true only (§2.4). The current set of ambient proposals. The
+   * browser renders these dashed + extra-faint (fainter than a "forming" node)
+   * with a "proposed by X" affordance. An empty list clears them.
+   */
+  | { kind: 'ghosts'; ghosts: GhostElement[] }
   | {
       kind: 'status';
       generation: number;

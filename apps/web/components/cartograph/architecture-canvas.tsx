@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import type { CanvasEdge, CanvasNode, NodeKind } from '@repo/protocol';
+import type { CanvasEdge, CanvasNode, GhostElement, NodeKind } from '@repo/protocol';
 import type { FormingState } from '@/hooks/use-cartograph';
 import {
   Background,
@@ -50,6 +50,10 @@ interface CartographNodeData extends Record<string, unknown> {
   forming: boolean;
   /** §3.3: a delivered word has matched this element's anchor phrase. */
   named: boolean;
+  /** §2.4: an ambient proposal overheard from the room — fainter still, never committed. */
+  ghost: boolean;
+  /** §2.4: which participant proposed this ghost. */
+  proposedBy?: string;
 }
 
 /**
@@ -81,9 +85,18 @@ function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
     opacity: 0.35,
   } as const;
 
-  // §3.3: a forming node is faint until a delivered word names it, then it
-  // firms up — and finally goes fully solid when its sentence commits it.
-  const targetOpacity = data.removing ? 0 : data.forming ? (data.named ? 0.82 : 0.4) : 1;
+  // §3.3 / §2.4: a forming node is faint until a delivered word names it; a
+  // ghost (ambient proposal) is fainter still. Both go fully solid only when
+  // committed.
+  const targetOpacity = data.removing
+    ? 0
+    : data.ghost
+      ? 0.34
+      : data.forming
+        ? data.named
+          ? 0.82
+          : 0.4
+        : 1;
 
   return (
     <motion.div
@@ -94,14 +107,15 @@ function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
           : { scale: data.forming && !data.named ? 0.96 : 1, opacity: targetOpacity, filter: 'blur(0px)' }
       }
       transition={data.removing ? { duration: DUR.slow } : SPRING}
+      title={data.ghost && data.proposedBy ? `proposed by ${data.proposedBy}` : undefined}
       style={{
         borderColor: data.removing
           ? 'var(--state-stale)'
-          : data.forming && !data.named
+          : data.ghost || (data.forming && !data.named)
             ? 'var(--muted-foreground)'
             : color,
         borderWidth: 2,
-        borderStyle: data.forming ? 'dashed' : 'solid',
+        borderStyle: data.forming || data.ghost ? 'dashed' : 'solid',
         borderRadius: 8,
         padding: '6px 10px',
         fontSize: 13,
@@ -262,6 +276,8 @@ interface ArchitectureCanvasProps {
   edges: CanvasEdge[];
   /** §3.3: staged-but-uncommitted elements, drawn "forming". */
   forming?: FormingState[];
+  /** §2.4: ambient proposals overheard from the room, drawn "ghost". */
+  ghosts?: GhostElement[];
   className?: string;
 }
 
@@ -283,7 +299,13 @@ export function ArchitectureCanvas(props: ArchitectureCanvasProps) {
   );
 }
 
-function ArchitectureCanvasInner({ nodes, edges, forming = [], className }: ArchitectureCanvasProps) {
+function ArchitectureCanvasInner({
+  nodes,
+  edges,
+  forming = [],
+  ghosts = [],
+  className,
+}: ArchitectureCanvasProps) {
   // Ids currently on screen (present or mid-exit) — NOT permanently-growing,
   // so a node removed and later re-added under the same id flashes again.
   const seenIds = useRef(new Set<string>());
@@ -357,6 +379,7 @@ function ArchitectureCanvasInner({ nodes, edges, forming = [], className }: Arch
         removing: false,
         forming: false,
         named: false,
+        ghost: false,
       },
     }));
     const exiting: Node<CartographNodeData>[] = removingNodes.map((n) => ({
@@ -372,6 +395,7 @@ function ArchitectureCanvasInner({ nodes, edges, forming = [], className }: Arch
         removing: true,
         forming: false,
         named: false,
+        ghost: false,
       },
     }));
     // §3.3: forming nodes spawn in a row above the committed graph; when they
@@ -390,10 +414,33 @@ function ArchitectureCanvasInner({ nodes, edges, forming = [], className }: Arch
         removing: false,
         forming: true,
         named: f.named,
+        ghost: false,
       },
     }));
-    return [...live, ...exiting, ...formingRow];
-  }, [nodes, justArrived, removingNodes, formingNodes]);
+    // §2.4: ambient proposals sit in a row BELOW the committed graph, so a
+    // "forming" node (in progress, above) and a "ghost" (a colleague's idea,
+    // below) read as distinct states.
+    const ghostRow: Node<CartographNodeData>[] = ghosts
+      .filter((g) => g.element === 'node' && !committedIds.has(g.id))
+      .map((g, i) => ({
+        id: g.id,
+        type: 'cartographNode',
+        position: { x: i * 190, y: 220 + Math.max(0, ...nodes.map((n) => n.y)) },
+        sourcePosition: Position.Right,
+        targetPosition: Position.Left,
+        data: {
+          label: g.label,
+          kind: g.kind ?? 'service',
+          justArrived: false,
+          removing: false,
+          forming: false,
+          named: false,
+          ghost: true,
+          proposedBy: g.proposedBy,
+        },
+      }));
+    return [...live, ...exiting, ...formingRow, ...ghostRow];
+  }, [nodes, justArrived, removingNodes, formingNodes, ghosts, committedIds]);
 
   const flowEdges: Edge[] = useMemo(
     () =>
