@@ -48,6 +48,9 @@ export interface UseCartographReturn {
   forming: FormingState[];
   /** ADDRESSIVITY=true only — ambient proposals overheard from the room (§2.4). */
   ghosts: GhostElement[];
+  /** §3.4: the latest Mermaid export the agent produced, or null. */
+  mermaid: string | null;
+  clearMermaid: () => void;
 }
 
 /**
@@ -64,6 +67,7 @@ export function useCartograph(): UseCartographReturn {
   const [status, setStatus] = useState<CartographStatus | undefined>(undefined);
   const [forming, setForming] = useState<FormingState[]>([]);
   const [ghosts, setGhosts] = useState<GhostElement[]>([]);
+  const [mermaid, setMermaid] = useState<string | null>(null);
   const ghostIds = useRef(new Set<string>());
   const lastVersion = useRef(0);
   const decoderRef = useRef<TextDecoder | undefined>(undefined);
@@ -131,6 +135,9 @@ export function useCartograph(): UseCartographReturn {
           );
           break;
         }
+        case 'export':
+          if (msg.format === 'mermaid') setMermaid(msg.content);
+          break;
         case 'ghosts': {
           // §2.7: soft earcon when a NEW proposal lands — never speech.
           const incoming = new Set(msg.ghosts.map((g) => g.id));
@@ -163,7 +170,17 @@ export function useCartograph(): UseCartographReturn {
     };
   }, [room]);
 
-  return { nodes, edges, groups, events, status, forming, ghosts };
+  return {
+    nodes,
+    edges,
+    groups,
+    events,
+    status,
+    forming,
+    ghosts,
+    mermaid,
+    clearMermaid: () => setMermaid(null),
+  };
 }
 
 /**

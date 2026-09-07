@@ -49,6 +49,55 @@ describe('CanvasStore', () => {
     expect(snap.edges[0]?.id).toBe('api-cache');
   });
 
+  it('undo reverses exactly the most recent mutation, and is a no-op on empty history', () => {
+    const store = new CanvasStore();
+    expect(store.canUndo).toBe(false);
+    store.apply({ op: 'undo' }); // no-op, no throw
+    expect(store.snapshot(0).nodes).toHaveLength(0);
+
+    store.apply({ op: 'addNode', node: node('a', 'A') });
+    store.apply({ op: 'addNode', node: node('b', 'B') });
+    expect(store.canUndo).toBe(true);
+
+    store.apply({ op: 'undo' });
+    expect(store.snapshot(1).nodes.map((n) => n.id)).toEqual(['a']); // b reversed
+
+    store.apply({ op: 'undo' });
+    expect(store.snapshot(2).nodes).toHaveLength(0); // a reversed
+    expect(store.canUndo).toBe(false);
+  });
+
+  it('undo restores edges and groups removed by a cascade', () => {
+    const store = new CanvasStore();
+    store.apply({ op: 'addNode', node: node('a', 'A') });
+    store.apply({ op: 'addNode', node: node('b', 'B') });
+    store.apply({ op: 'addEdge', edge: { id: 'a-b', source: 'a', target: 'b' } });
+    store.apply({ op: 'addGroup', id: 'g', label: 'G', memberIds: ['a', 'b'] });
+
+    store.apply({ op: 'removeNode', nodeId: 'a' }); // cascades edge + shrinks group
+    expect(store.snapshot(1).edges).toHaveLength(0);
+
+    store.apply({ op: 'undo' });
+    const snap = store.snapshot(2);
+    expect(snap.nodes.map((n) => n.id).sort()).toEqual(['a', 'b']);
+    expect(snap.edges).toHaveLength(1);
+    expect(snap.groups[0]!.memberIds.sort()).toEqual(['a', 'b']);
+  });
+
+  it('toMermaid renders nodes, edges, async style, and subgraphs', () => {
+    const store = new CanvasStore();
+    store.apply({ op: 'addNode', node: node('api', 'API') });
+    store.apply({ op: 'addNode', node: { ...node('q', 'Kafka'), kind: 'queue' } });
+    store.apply({ op: 'addEdge', edge: { id: 'api-q', source: 'api', target: 'q', flow: 'async' } });
+    store.apply({ op: 'addGroup', id: 'vpc', label: 'VPC', memberIds: ['api'] });
+
+    const m = store.toMermaid();
+    expect(m).toContain('flowchart LR');
+    expect(m).toContain('subgraph');
+    expect(m).toContain('"VPC"');
+    expect(m).toContain('-.->'); // async edge
+  });
+
   it('version strictly increases with every mutation', () => {
     const store = new CanvasStore();
     expect(store.currentVersion).toBe(0);

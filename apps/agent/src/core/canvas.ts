@@ -20,8 +20,29 @@ export class CanvasStore {
   // meant that removing a node then adding one reused an occupied grid slot and
   // stacked two boxes exactly. Reset only by an explicit `clear`.
   private placements = 0;
+  // Bounded state history for undo-by-voice. Each entry is the full node/edge/
+  // group state *before* a mutation — "undo" restores the most recent. Layout
+  // repositioning (applyLayout) is not history-worthy, so it's excluded.
+  private history: {
+    nodes: [string, CanvasNode][];
+    edges: [string, CanvasEdge][];
+    groups: [string, Omit<CanvasGroup, 'x' | 'y' | 'width' | 'height'>][];
+    placements: number;
+  }[] = [];
+  private static readonly HISTORY_LIMIT = 30;
+
+  private pushHistory(): void {
+    this.history.push({
+      nodes: [...this.nodes].map(([k, v]) => [k, { ...v }]),
+      edges: [...this.edges].map(([k, v]) => [k, { ...v }]),
+      groups: [...this.groups].map(([k, v]) => [k, { ...v, memberIds: [...v.memberIds] }]),
+      placements: this.placements,
+    });
+    if (this.history.length > CanvasStore.HISTORY_LIMIT) this.history.shift();
+  }
 
   apply(m: MutationOp): void {
+    if (m.op !== 'undo') this.pushHistory();
     switch (m.op) {
       case 'addNode':
         this.nodes.set(m.node.id, { ...m.node });
@@ -68,6 +89,15 @@ export class CanvasStore {
         if (memberIds.length > 0) this.groups.set(m.id, { id: m.id, label: m.label, memberIds });
         break;
       }
+      case 'undo': {
+        const prev = this.history.pop();
+        if (!prev) break; // nothing to undo — a no-op, not an error
+        this.nodes = new Map(prev.nodes);
+        this.edges = new Map(prev.edges);
+        this.groups = new Map(prev.groups);
+        this.placements = prev.placements;
+        break;
+      }
       case 'clear':
         this.nodes.clear();
         this.edges.clear();
@@ -76,6 +106,11 @@ export class CanvasStore {
         break;
     }
     this.version += 1;
+  }
+
+  /** True when there is at least one committed mutation that `undo` could reverse. */
+  get canUndo(): boolean {
+    return this.history.length > 0;
   }
 
   /** Group boxes derived from current member positions — never authored. */
@@ -165,5 +200,36 @@ export class CanvasStore {
 
   get currentVersion(): number {
     return this.version;
+  }
+
+  /**
+   * Mermaid `flowchart` source for the current diagram — an export the user can
+   * paste elsewhere (§3.4: Mermaid is a fine export target, just not a
+   * renderer, because it re-renders the whole graph on every change).
+   */
+  toMermaid(): string {
+    if (this.nodes.size === 0) return 'flowchart LR\n  %% (empty)';
+    const safe = (id: string) => `n_${id.replace(/[^A-Za-z0-9_]/g, '_')}`;
+    const lines = ['flowchart LR'];
+    for (const [gid, g] of this.groups) {
+      lines.push(`  subgraph g_${safe(gid)}["${g.label}"]`);
+      for (const id of g.memberIds) {
+        const n = this.nodes.get(id);
+        if (n) lines.push(`    ${safe(id)}["${n.label}"]`);
+      }
+      lines.push('  end');
+    }
+    const grouped = new Set([...this.groups.values()].flatMap((g) => g.memberIds));
+    for (const [id, n] of this.nodes) {
+      if (!grouped.has(id)) lines.push(`  ${safe(id)}["${n.label}"]`);
+    }
+    for (const e of this.edges.values()) {
+      if (!this.nodes.has(e.source) || !this.nodes.has(e.target)) continue;
+      const arrow = e.flow === 'async' ? '-. ' : '-- ';
+      const tail = e.flow === 'async' ? ' .->' : '-->';
+      const mid = e.label ? `${arrow}${e.label}${tail}` : e.flow === 'async' ? '-.->' : '-->';
+      lines.push(`  ${safe(e.source)} ${mid} ${safe(e.target)}`);
+    }
+    return lines.join('\n');
   }
 }

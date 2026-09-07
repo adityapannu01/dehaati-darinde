@@ -39,6 +39,9 @@ export const PERSONA = dedent`
     - When asked what is on the diagram, or before a bulk edit, call describeArchitecture and
       answer from its result — it lists every committed component and connection by name.
       Never guess the diagram's contents from memory; it may have changed since your last reply.
+    - "undo that" / "take that back" -> undoLast (reverses one committed change). "export this"
+      / "give me the mermaid" -> exportDiagram, then just say it is on screen — never read the
+      export text aloud.
 
     # Guardrails
 

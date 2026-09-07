@@ -9,6 +9,7 @@ import { WelcomeView } from '@/components/app/welcome-view';
 import { ArchitectureCanvas } from '@/components/cartograph/architecture-canvas';
 import { EventLedger } from '@/components/cartograph/event-ledger';
 import { GenerationHud } from '@/components/cartograph/generation-hud';
+import { MermaidExport } from '@/components/cartograph/mermaid-export';
 import { SessionChrome } from '@/components/cartograph/session-chrome';
 import { SpokenLine } from '@/components/cartograph/spoken-line';
 import { useCartograph } from '@/hooks/use-cartograph';
@@ -39,7 +40,8 @@ interface ViewControllerProps {
 
 export function ViewController({ appConfig }: ViewControllerProps) {
   const { isConnected, start } = useSessionContext();
-  const { nodes, edges, groups, events, status, forming, ghosts } = useCartograph();
+  const { nodes, edges, groups, events, status, forming, ghosts, mermaid, clearMermaid } =
+    useCartograph();
   const lastToastedSeq = useRef(0);
 
   // A stale tool result being rejected in real time is the money shot —
@@ -103,6 +105,11 @@ export function ViewController({ appConfig }: ViewControllerProps) {
               "Built with LiveKit Agents" in the same top-right corner (B8). */}
           <GenerationHud status={status} className="fixed top-16 right-4 z-20" />
           <EventLedger events={events} className="fixed right-4 bottom-28 z-20" />
+          <MermaidExport
+            mermaid={mermaid}
+            onClose={clearMermaid}
+            className="fixed bottom-28 left-4 z-30"
+          />
           <SessionChrome
             supportsChatInput={appConfig.supportsChatInput}
             supportsVideoInput={appConfig.supportsVideoInput}

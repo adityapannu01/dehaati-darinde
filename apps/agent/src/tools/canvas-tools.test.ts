@@ -18,15 +18,33 @@ function setup(slowMs = 20) {
     if (!t || t.type !== 'function') throw new Error(`${name} not found`);
     return t;
   };
+  const published: unknown[] = [];
+  const toolsWithPublish = createCanvasTools({
+    gm,
+    commitGate,
+    ledger,
+    canvas,
+    slowMs,
+    publish: (m) => published.push(m),
+  });
+  const pickP = (name: string) => {
+    const t = toolsWithPublish.find((tool) => tool.name === name);
+    if (!t || t.type !== 'function') throw new Error(`${name} not found`);
+    return t;
+  };
   return {
     gm,
     staging,
     ledger,
     canvas,
+    published,
     addService: pick('addService'),
     connectServices: pick('connectServices'),
     clearCanvas: pick('clearCanvas'),
     describeArchitecture: pick('describeArchitecture'),
+    undoLast: pick('undoLast'),
+    groupComponents: pick('groupComponents'),
+    exportDiagram: pickP('exportDiagram'),
   };
 }
 
@@ -177,6 +195,49 @@ describe('clearCanvas (B6)', () => {
 
     // Staged only — the board still has its node until CommitGate commits.
     expect(canvas.nodeCount).toBe(1);
+  });
+});
+
+describe('undoLast + groupComponents + exportDiagram', () => {
+  it('undoLast stages an undo op, or says nothing to undo when history is empty', async () => {
+    const { gm, staging, canvas, undoLast } = setup(1);
+    const g1 = gm.start('undo that');
+    const sig = new AbortController().signal;
+
+    expect(await callExecute(undoLast, {}, { abortSignal: sig })).toContain('nothing to undo');
+
+    canvas.apply({ op: 'addNode', node: { id: 'a', label: 'A', kind: 'service', x: 0, y: 0 } });
+    const res = await callExecute(undoLast, {}, { abortSignal: sig });
+    expect(res).toContain('Staged');
+    expect(staging.pendingFor(g1.id)[0]?.mutation).toEqual({ op: 'undo' });
+  });
+
+  it('groupComponents accepts an array or a comma/and string of members', async () => {
+    const { gm, staging, groupComponents } = setup(1);
+    const g1 = gm.start('draw a boundary');
+    const sig = new AbortController().signal;
+
+    await callExecute(groupComponents, { label: 'VPC', memberLabels: ['Orders', 'Payments'] }, { abortSignal: sig });
+    await callExecute(
+      groupComponents,
+      { label: 'DMZ', memberLabels: 'API Gateway and Auth Service' },
+      { abortSignal: sig },
+    );
+
+    const staged = staging.pendingFor(g1.id).map((s) => s.mutation);
+    expect(staged[0]).toMatchObject({ op: 'addGroup', memberIds: ['orders', 'payments'] });
+    expect(staged[1]).toMatchObject({ op: 'addGroup', memberIds: ['api-gateway', 'auth-service'] });
+  });
+
+  it('exportDiagram publishes a mermaid panel message and stages nothing', async () => {
+    const { canvas, published, exportDiagram } = setup(1);
+    canvas.apply({ op: 'addNode', node: { id: 'api', label: 'API', kind: 'gateway', x: 0, y: 0 } });
+
+    const res = await callExecute(exportDiagram, {}, { abortSignal: new AbortController().signal });
+    expect(res).toContain('on screen');
+    expect(published).toHaveLength(1);
+    expect(published[0]).toMatchObject({ kind: 'export', format: 'mermaid' });
+    expect((published[0] as { content: string }).content).toContain('flowchart LR');
   });
 });
 

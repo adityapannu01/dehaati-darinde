@@ -331,7 +331,7 @@ export default defineAgent({
     // Start the session, which initializes the voice pipeline and warms up the models
     await session.start({
       agent: createAgent(
-        { gm, commitGate, ledger, canvas, slowMs },
+        { gm, commitGate, ledger, canvas, slowMs, publish: (msg) => void publisher?.send(msg) },
         {
           // §3.3: forward Rime's aligned word timings to the browser so a
           // forming node's label reveal can finish exactly as the word is said.

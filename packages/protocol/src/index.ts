@@ -58,6 +58,8 @@ export type MutationOp =
   | { op: 'removeEdge'; edgeId: string }
   /** Draw a boundary around existing components (§3.2). */
   | { op: 'addGroup'; id: string; label: string; memberIds: string[] }
+  /** Reverse the most recent committed mutation (undo-by-voice). No-op if nothing to undo. */
+  | { op: 'undo' }
   /** Wipe every node and edge in a single atomic step (see clearCanvas tool). */
   | { op: 'clear' };
 
@@ -156,6 +158,8 @@ export type ServerMessage =
    * browser so the label reveal can finish exactly as the word is said.
    */
   | { kind: 'word'; generation: number; text: string; startTime?: number | undefined; endTime?: number | undefined }
+  /** §3.4: a text export (Mermaid) the user can copy — shown in a panel, never spoken. */
+  | { kind: 'export'; format: 'mermaid'; content: string }
   /**
    * ADDRESSIVITY=true only (§2.4). The current set of ambient proposals. The
    * browser renders these dashed + extra-faint (fainter than a "forming" node)

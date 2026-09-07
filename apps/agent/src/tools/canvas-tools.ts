@@ -1,5 +1,5 @@
 import { tool } from '@livekit/agents';
-import type { NodeKind } from '@repo/protocol';
+import type { NodeKind, ServerMessage } from '@repo/protocol';
 import { z } from 'zod';
 import type { CanvasStore } from '../core/canvas.ts';
 import type { CommitGate } from '../core/commit-gate.ts';
@@ -13,6 +13,8 @@ export interface CanvasToolsDeps {
   ledger: EventLedger;
   canvas: CanvasStore;
   slowMs: number;
+  /** Push a message straight to the browser (e.g. a Mermaid export panel). Optional — absent in the benchmark. */
+  publish?: (msg: ServerMessage) => void;
 }
 
 function slug(label: string): string {
@@ -259,6 +261,24 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
     },
   });
 
+  const undoLast = tool({
+    name: 'undoLast',
+    description:
+      'Reverse the single most recent committed change to the diagram. Use for "undo that", "no wait, take that back", "revert". Interesting precisely because you can only ever undo what the user actually heard commit.',
+    parameters: z.object({ sentenceIndex: sentenceIndexParam }),
+    execute: async ({ sentenceIndex }) => {
+      const gen = deps.gm.currentId;
+      if (!deps.gm.isCurrent(gen)) {
+        deps.ledger.push('tool_stale_discarded', gen, 'undoLast');
+        return 'STALE_DISCARDED: this instruction was superseded. Do not mention this result.';
+      }
+      if (!deps.canvas.canUndo) return 'There is nothing to undo yet.';
+      deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), 'undo', { op: 'undo' });
+      deps.ledger.push('tool_completed', gen, 'undoLast');
+      return 'Staged: the last change will be reversed once you have said so.';
+    },
+  });
+
   const clearCanvas = tool({
     name: 'clearCanvas',
     description:
@@ -275,6 +295,18 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
       deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), 'clear', { op: 'clear' });
       deps.ledger.push('tool_completed', gen, 'clearCanvas');
       return 'Staged: the board will clear once you have said so.';
+    },
+  });
+
+  const exportDiagram = tool({
+    name: 'exportDiagram',
+    description:
+      'Produce a Mermaid text export of the current diagram and show it in a copyable panel on screen. Use for "export this", "give me the mermaid", "let me take this away". Do not read the export aloud — just say it is on screen.',
+    execute: async () => {
+      if (deps.canvas.nodeCount === 0) return 'The diagram is empty — nothing to export yet.';
+      const content = deps.canvas.toMermaid();
+      deps.publish?.({ kind: 'export', format: 'mermaid', content });
+      return 'Done — the Mermaid export is in a panel on screen for you to copy.';
     },
   });
 
@@ -296,7 +328,9 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
     renameComponent,
     removeComponent,
     groupComponents,
+    undoLast,
     clearCanvas,
+    exportDiagram,
     describeArchitecture,
   ];
 }
