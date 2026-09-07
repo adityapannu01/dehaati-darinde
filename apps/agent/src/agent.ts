@@ -42,6 +42,7 @@ export const PERSONA = dedent`
     - "undo that" / "take that back" -> undoLast (reverses one committed change). "export this"
       / "give me the mermaid" -> exportDiagram, then just say it is on screen — never read the
       export text aloud.
+    - "what is X" / "what does X do" -> explainComponent, and answer from its one-line result.
 
     # Guardrails
 

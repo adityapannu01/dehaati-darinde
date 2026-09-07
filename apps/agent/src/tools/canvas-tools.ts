@@ -5,6 +5,7 @@ import type { CanvasStore } from '../core/canvas.ts';
 import type { CommitGate } from '../core/commit-gate.ts';
 import type { GenerationManager } from '../core/generation.ts';
 import type { EventLedger } from '../core/ledger.ts';
+import { enrichComponent } from './enrich.ts';
 import { slowWork } from './slow.ts';
 
 export interface CanvasToolsDeps {
@@ -298,6 +299,31 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
     },
   });
 
+  const explainComponent = tool({
+    name: 'explainComponent',
+    description:
+      'Get a one-line description of a well-known technology on the diagram, to answer "what is X" or "what does X do". Read-only — stages nothing.',
+    parameters: z.object({
+      label: z.string().describe('The component to explain, e.g. "Redis", "Envoy".'),
+    }),
+    // A REAL slow tool (§5.4): fixture-first, then a bounded live fetch. The
+    // fence still protects it — an interruption aborts the fetch mid-flight.
+    execute: async ({ label }, opts) => {
+      const gen = deps.gm.currentId;
+      deps.ledger.push('tool_started', gen, `explainComponent(${label})`);
+      const { summary, source } = await enrichComponent(label, {
+        abortSignal: opts.abortSignal,
+        live: process.env.COMPONENT_LOOKUP !== 'fixture',
+      });
+      if (!deps.gm.isCurrent(gen)) {
+        deps.ledger.push('tool_stale_discarded', gen, `explainComponent(${label})`);
+        return 'STALE_DISCARDED: this instruction was superseded. Do not mention this result.';
+      }
+      deps.ledger.push('tool_completed', gen, `explainComponent(${label}) [${source}]`);
+      return summary ? `${label}: ${summary}` : `I do not have a description for ${label}.`;
+    },
+  });
+
   const exportDiagram = tool({
     name: 'exportDiagram',
     description:
@@ -330,6 +356,7 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
     groupComponents,
     undoLast,
     clearCanvas,
+    explainComponent,
     exportDiagram,
     describeArchitecture,
   ];
