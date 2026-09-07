@@ -51,4 +51,22 @@ describe('DeliveryTracker', () => {
     WORDS.forEach((w, i) => tracker.push(timed(w, i)));
     expect(tracker.spokenText).toBe(tracker.deliveredText);
   });
+
+  // §2.5a — non-Latin sentence terminators
+  it('counts a Hindi sentence ending in a danda (।)', () => {
+    const tracker = new DeliveryTracker();
+    const hi = ['मैं', ' एक', ' Redis', ' cache', ' जोड़', ' रहा', ' हूँ।'];
+    const counts = hi.map((w, i) => tracker.push(timed(w, i)));
+    expect(counts.at(-1)).toBe(1);
+    expect(tracker.deliveredText).toContain('Redis cache');
+  });
+
+  it('counts Japanese (。), Chinese (？) and Arabic (؟) terminators', () => {
+    for (const term of ['。', '？', '؟', '॥', '！']) {
+      const tracker = new DeliveryTracker();
+      tracker.push(timed('word', 0));
+      tracker.push(timed(`end${term}`, 1));
+      expect(tracker.sentenceCount, term).toBe(1);
+    }
+  });
 });

@@ -5,7 +5,18 @@
 // Pure TypeScript, no LiveKit imports, so the benchmark harness can drive it
 // with a synthetic word stream and no audio at all.
 
-const SENTENCE_TERMINATORS = new Set(['.', '!', '?']);
+// Latin + the terminators the Coda languages actually use (§2.5a). Without the
+// non-Latin ones a Hindi/Japanese/Chinese/Arabic sentence never registers as
+// delivered, so `sentenceCount` stays 0 and nothing ever commits.
+//   Hindi     ।  (danda) and ॥ (double danda)
+//   CJK       。 ？ ！
+//   Arabic    ؟  (question) — statements end without a mark, handled by onTurnComplete
+const SENTENCE_TERMINATORS = new Set([
+  '.', '!', '?',
+  '।', '॥', // Devanagari danda, double danda
+  '。', '？', '！', // CJK full stop, fullwidth ? and !
+  '؟', // Arabic question mark
+]);
 
 export interface SpokenWord {
   text: string;

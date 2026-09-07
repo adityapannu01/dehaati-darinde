@@ -1,5 +1,6 @@
 import type { FormingElement, MutationOp, StagedMutation } from '@repo/protocol';
 import type { CanvasStore } from './canvas.ts';
+import { applyLexicon } from './lexicon.ts';
 import { DeliveryTracker, type SpokenWord } from './delivery.ts';
 import type { EventLedger } from './ledger.ts';
 import type { StagingBuffer } from './staging.ts';
@@ -260,11 +261,15 @@ export class CommitGate {
     const committed = this.staging.commitThrough(generation, throughSentenceIndex, (m) =>
       this.canvas.apply(m),
     );
-    const heard = this.tracker.deliveredText.toLowerCase();
+    // §3.3: normalise BOTH sides through the pronunciation lexicon before
+    // comparing. Rime echoes back the words it actually spoke — i.e. the
+    // post-respelling text ("engine ex", not "nginx") — so without this every
+    // commit of a respelled component would be flagged anchor_mismatch.
+    const heard = applyLexicon(this.tracker.deliveredText).toLowerCase();
     for (const item of committed) {
       this.resolvedIds.add(item.id);
       // Mismatch guard: never blocks a commit, just flags it for the ledger.
-      const matched = heard.includes(item.anchorPhrase.toLowerCase());
+      const matched = heard.includes(applyLexicon(item.anchorPhrase).toLowerCase());
       this.ledger.push(
         'mutation_committed',
         generation,
