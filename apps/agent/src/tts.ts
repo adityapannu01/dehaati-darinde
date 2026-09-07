@@ -84,6 +84,11 @@ export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTS
           // REQUIRED: without this, synthesis is non-streaming chunked and
           // alignedTranscript is false — the commit gate has nothing to key off.
           useWebsocket: true,
+          // Log out-of-vocabulary words Rime had to guess at. For this project
+          // infrastructure vocabulary IS the content (nginx, etcd, PostgreSQL,
+          // gRPC…), and it's exactly what TTS mangles — so surface what Rime
+          // doesn't know instead of guessing. See bench/pronunciation/ (§4.3).
+          saveOovs: true,
           // NOTE: speedAlpha is ignored on coda (use timeScaleFactor there); and
           // timeScaleFactor throws on mistv2 (use speedAlpha there). Only sent if RIME_SPEED is set.
           ...rimePluginSpeedOption(model),
