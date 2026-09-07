@@ -92,6 +92,14 @@ export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTS
         // Log out-of-vocabulary words Rime had to guess at (§4.3). Default off —
         // it is a diagnostic for pronunciation-harness runs, not production.
         saveOovs: env('RIME_SAVE_OOVS', 'false').toLowerCase() === 'true',
+        // reduceLatency is NOT set here, deliberately, after checking:
+        // @livekit/agents-plugin-rime@1.7.1's modelParams() only forwards
+        // reduceLatency into the wire request when modelId is 'mistv2' — for
+        // 'coda' it's silently dropped, on both the WebSocket URL and the HTTP
+        // payload builder. Mist v2 has no word-level timestamps, which the
+        // commit gate requires, so switching models to reach this option isn't
+        // an option either. Recorded as an investigated-and-closed lever
+        // rather than left unexplored — see RIME_EVIDENCE.md.
         // NOTE: speedAlpha is ignored on coda (use timeScaleFactor there); and
         // timeScaleFactor throws on mistv2 (use speedAlpha there). Only sent if RIME_SPEED is set.
         ...rimePluginSpeedOption(model),
