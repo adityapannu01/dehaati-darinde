@@ -72,12 +72,15 @@ export default async function RootLayout({ children }: RootLayoutProps) {
           enableSystem
           disableTransitionOnChange
         >
-          <header className="fixed top-0 left-0 z-50 hidden w-full flex-row justify-between p-6 md:flex">
+          {/* pointer-events-none so this full-width fixed bar doesn't swallow
+              clicks across the entire top strip of the canvas (B8); the links
+              re-enable pointer events for themselves. */}
+          <header className="pointer-events-none fixed top-0 left-0 z-50 hidden w-full flex-row justify-between p-6 md:flex">
             <a
               target="_blank"
               rel="noopener noreferrer"
               href="https://livekit.io"
-              className="scale-100 transition-transform duration-300 hover:scale-110"
+              className="pointer-events-auto scale-100 transition-transform duration-300 hover:scale-110"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={logo} alt={`${companyName} Logo`} className="block size-6 dark:hidden" />
@@ -88,7 +91,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
                 className="hidden size-6 dark:block"
               />
             </a>
-            <span className="text-foreground font-mono text-xs font-bold tracking-wider uppercase">
+            <span className="text-foreground pointer-events-auto font-mono text-xs font-bold tracking-wider uppercase">
               Built with{' '}
               <a
                 target="_blank"

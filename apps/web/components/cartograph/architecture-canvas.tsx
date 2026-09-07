@@ -14,9 +14,12 @@ import {
   type NodeProps,
   Position,
   ReactFlow,
+  ReactFlowProvider,
   getBezierPath,
+  useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
+import { useReducedMotion } from 'motion/react';
 import { DUR, SPRING } from '@/lib/motion';
 import { cn } from '@/lib/shadcn/utils';
 
@@ -217,8 +220,19 @@ interface ArchitectureCanvasProps {
  * must never be able to desynchronise the "state matches what was heard"
  * claim. Newly-committed nodes/edges get a brief highlight — that flash IS
  * the demo moment.
+ *
+ * Wrapped in a ReactFlowProvider so the inner component can call useReactFlow()
+ * for imperative fitView (B3).
  */
-export function ArchitectureCanvas({ nodes, edges, className }: ArchitectureCanvasProps) {
+export function ArchitectureCanvas(props: ArchitectureCanvasProps) {
+  return (
+    <ReactFlowProvider>
+      <ArchitectureCanvasInner {...props} />
+    </ReactFlowProvider>
+  );
+}
+
+function ArchitectureCanvasInner({ nodes, edges, className }: ArchitectureCanvasProps) {
   // Ids currently on screen (present or mid-exit) — NOT permanently-growing,
   // so a node removed and later re-added under the same id flashes again.
   const seenIds = useRef(new Set<string>());
@@ -304,6 +318,20 @@ export function ArchitectureCanvas({ nodes, edges, className }: ArchitectureCanv
     [edges]
   );
 
+  // B3: the `fitView` prop only frames the viewport on the initial (empty)
+  // mount. Re-fit imperatively whenever the graph's size changes so nodes past
+  // the first row are never left off-screen. The animated glide reads as the
+  // diagram growing; honour prefers-reduced-motion, as the rest of the app does.
+  const { fitView } = useReactFlow();
+  const prefersReducedMotion = useReducedMotion();
+  useEffect(() => {
+    if (nodes.length === 0) return;
+    const id = requestAnimationFrame(() => {
+      void fitView({ padding: 0.2, duration: prefersReducedMotion ? 0 : 400, maxZoom: 1.2 });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [nodes.length, edges.length, fitView, prefersReducedMotion]);
+
   return (
     <div className={cn('h-full w-full', className)}>
       <ReactFlow
@@ -315,6 +343,7 @@ export function ArchitectureCanvas({ nodes, edges, className }: ArchitectureCanv
         nodesConnectable={false}
         elementsSelectable={false}
         fitView
+        fitViewOptions={{ padding: 0.2, maxZoom: 1.2 }}
         proOptions={{ hideAttribution: true }}
       >
         <Background />

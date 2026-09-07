@@ -92,7 +92,9 @@ export function ViewController({ appConfig }: ViewControllerProps) {
             events={events}
             className="fixed top-6 left-1/2 z-20 w-full max-w-2xl -translate-x-1/2 px-4"
           />
-          <GenerationHud status={status} className="fixed top-4 right-4 z-20" />
+          {/* top-16, not top-4: clears the fixed page header, which paints
+              "Built with LiveKit Agents" in the same top-right corner (B8). */}
+          <GenerationHud status={status} className="fixed top-16 right-4 z-20" />
           <EventLedger events={events} className="fixed right-4 bottom-28 z-20" />
           <SessionChrome
             supportsChatInput={appConfig.supportsChatInput}
