@@ -61,6 +61,27 @@ export class CanvasStore {
     this.version += 1;
   }
 
+  /**
+   * Apply an ELK-computed placement (see core/layout.ts). Returns true if any
+   * position actually moved, so the caller only re-publishes on a real change.
+   * Unknown ids are ignored — the graph can shift between layout request and
+   * result.
+   */
+  applyLayout(placements: Map<string, { x: number; y: number }>): boolean {
+    let moved = false;
+    for (const [id, pos] of placements) {
+      const node = this.nodes.get(id);
+      if (!node) continue;
+      if (node.x !== pos.x || node.y !== pos.y) {
+        node.x = pos.x;
+        node.y = pos.y;
+        moved = true;
+      }
+    }
+    if (moved) this.version += 1;
+    return moved;
+  }
+
   /** Deep copy — never a live reference into the store. */
   snapshot(generation: number): CanvasSnapshot {
     return {

@@ -10,6 +10,7 @@ import { CommitGate } from './core/commit-gate.ts';
 import { GenerationManager } from './core/generation.ts';
 import type { LedgerEvent } from '@repo/protocol';
 import { EventLedger } from './core/ledger.ts';
+import { layoutCanvas } from './core/layout.ts';
 import { StagingBuffer } from './core/staging.ts';
 import { isBackchannel } from './core/turn-taking.ts';
 import { CanvasPublisher } from './transport/publisher.ts';
@@ -78,6 +79,26 @@ export default defineAgent({
     let flushTimer: ReturnType<typeof setTimeout> | undefined;
     const EVENT_FLUSH_MS = 50;
 
+    // B4: layered layout, recomputed after every committed mutation.
+    const layoutDirection = env('LAYOUT_DIRECTION', 'RIGHT') === 'DOWN' ? 'DOWN' : 'RIGHT';
+    let layoutSeq = 0;
+    async function relayout(): Promise<void> {
+      const mySeq = ++layoutSeq;
+      const snap = canvas.snapshot(gm.currentId);
+      let placements;
+      try {
+        placements = await layoutCanvas(snap.nodes, snap.edges, layoutDirection);
+      } catch (err) {
+        logger.warn(`[layout] ELK failed, keeping current positions: ${String(err)}`);
+        return;
+      }
+      // A newer commit already kicked its own relayout — its result wins.
+      if (mySeq !== layoutSeq) return;
+      if (canvas.applyLayout(placements)) {
+        void publisher?.send({ kind: 'snapshot', snapshot: canvas.snapshot(gm.currentId) });
+      }
+    }
+
     function pushStatus(): void {
       void publisher?.send({
         kind: 'status',
@@ -113,6 +134,11 @@ export default defineAgent({
           `[publish] snapshot v${snap.version} nodes=${snap.nodes.length} edges=${snap.edges.length} publisher=${publisher ? 'ready' : 'MISSING'}`,
         );
         void publisher?.send({ kind: 'snapshot', snapshot: snap });
+        // B4: re-run the layered layout now that the graph changed, then
+        // publish the repositioned snapshot. Async and superseding — a burst of
+        // commits collapses to one final layout, and the browser animates
+        // nodes to their new places (a diagram that reflows as it grows).
+        void relayout();
       }
       if (event.type === 'tool_started') {
         toolsInFlight += 1;

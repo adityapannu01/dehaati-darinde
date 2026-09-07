@@ -211,3 +211,19 @@
     animation: none;
   }
 }
+
+/* B4: the agent recomputes the layered layout after every committed mutation
+   and re-publishes node positions. xyflow drives node placement through a
+   `transform: translate()` on `.react-flow__node`; transitioning that makes the
+   diagram glide into its new shape as it grows rather than snapping. Node
+   *content* animation (scale/opacity/filter) lives on an inner element, so this
+   only touches the outer translate. */
+.react-flow__node {
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .react-flow__node {
+    transition: none;
+  }
+}

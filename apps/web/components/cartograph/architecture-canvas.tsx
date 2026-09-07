@@ -319,18 +319,25 @@ function ArchitectureCanvasInner({ nodes, edges, className }: ArchitectureCanvas
   );
 
   // B3: the `fitView` prop only frames the viewport on the initial (empty)
-  // mount. Re-fit imperatively whenever the graph's size changes so nodes past
-  // the first row are never left off-screen. The animated glide reads as the
+  // mount. Re-fit imperatively whenever the graph's bounds change — a new node,
+  // a new edge, OR the agent's layered layout (B4) repositioning existing nodes
+  // — so nothing is ever left off-screen. The animated glide reads as the
   // diagram growing; honour prefers-reduced-motion, as the rest of the app does.
   const { fitView } = useReactFlow();
   const prefersReducedMotion = useReducedMotion();
+  const boundsKey = useMemo(
+    () => nodes.map((n) => `${n.id}:${n.x},${n.y}`).join('|') + `#${edges.length}`,
+    [nodes, edges.length]
+  );
   useEffect(() => {
     if (nodes.length === 0) return;
-    const id = requestAnimationFrame(() => {
-      void fitView({ padding: 0.2, duration: prefersReducedMotion ? 0 : 400, maxZoom: 1.2 });
-    });
-    return () => cancelAnimationFrame(id);
-  }, [nodes.length, edges.length, fitView, prefersReducedMotion]);
+    // Let the node-position CSS transition (globals.css) start first so the
+    // camera tracks the moving nodes rather than jumping ahead of them.
+    const id = setTimeout(() => {
+      void fitView({ padding: 0.2, duration: prefersReducedMotion ? 0 : 450, maxZoom: 1.2 });
+    }, 60);
+    return () => clearTimeout(id);
+  }, [boundsKey, nodes.length, fitView, prefersReducedMotion]);
 
   return (
     <div className={cn('h-full w-full', className)}>
