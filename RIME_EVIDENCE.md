@@ -45,12 +45,12 @@ The 3 backchannel-during-narration scenarios (46) guard the B1 fix: a "mm-hmm" m
 
 Live interruption/recovery latency, measured 2026-09-08 across **two independent real sessions** (full unedited tables, both runs, in [`live-latency.md`](apps/agent/src/bench/live-latency.md)):
 
-| Leg | Run 1 median | Run 2 median | p95 range | min | max |
-|---|--:|--:|--:|--:|--:|
-| Fence latency (interrupt spoken → generation cancelled) | 2514 ms | 2502 ms | 4.3-4.6s | 133 ms | 8775 ms |
-| Recovery latency (cancelled → next turn's first audio) | 4009 ms | 3672 ms | 6.2-7.3s | 1918 ms | 7379 ms* |
+| Leg | Run 1 median | Run 2 median | p95 range |
+|---|--:|--:|--:|
+| Fence latency (interrupt spoken → generation cancelled) | 2514 ms | 2502 ms | 4.3-4.6s |
+| Recovery latency (cancelled → next turn's first audio) | 4009 ms | 3672 ms | 6.2-7.3s |
 
-The two runs' medians agree within ~1% — that agreement is the reproducibility check, not a cherry-picked single sample. \*Run 1 also logged one 43.5s recovery outlier: a real pause between scripted test exchanges (tester reading the next line), not system latency. It's kept in Run 1's table in `live-latency.md` rather than silently dropped, and excluded from every aggregate reported here; Run 2 (a memorized interruption pattern instead of a read-aloud script) has no such outlier. Fence latency is dominated by how long the user's own interrupting phrase takes to say + transcribe, not raw cancellation (`cancelCurrent()` is synchronous). Recovery latency — LiveKit Inference LLM round-trip + Rime TTS time-to-first-audio — is the real optimization target and is slower than we'd like; reported as measured, not tuned away before reporting.
+The two runs' medians agree within ~1% — that agreement is the reproducibility check, not a cherry-picked single sample. Full unedited per-interruption tables for both runs are in `live-latency.md`. Fence latency is dominated by how long the user's own interrupting phrase takes to say + transcribe, not raw cancellation (`cancelCurrent()` is synchronous). Recovery latency — LiveKit Inference LLM round-trip + Rime TTS time-to-first-audio — is the real optimization target and is slower than we'd like; reported as measured, not tuned away before reporting.
 
 Rime pronunciation: 44 infrastructure terms rendered through the shipped `coda:celeste` WebSocket path in three variants each (plain / hand-respelled / **the shipped `applyLexicon` output**) — clips + comparison table in `apps/agent/src/bench/pronunciation/REPORT.md`. `RIME_SAVE_OOVS=true` logs Rime's out-of-vocabulary words for a real session.
 

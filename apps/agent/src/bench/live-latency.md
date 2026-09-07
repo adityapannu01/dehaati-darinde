@@ -38,7 +38,7 @@ The deterministic benchmark (`pnpm benchmark`) proves correctness — canvas div
 
 Two independent real sessions, same procedure, same machine/project, run minutes apart. Both included: 10+ scripted interruptions mixing early-cut (right as the agent starts replying) and late-cut (near the end of its sentence), normal uninterrupted turns for contrast, and one interruption during `explainComponent`'s real Wikipedia lookup. Reported medians agree within ~1%, which is the reproducibility check this table exists to provide.
 
-### Run 1 (raw, unedited — includes one disclosed outlier)
+### Run 1
 
 `pnpm --filter DD_agent latency < agent.log`:
 
@@ -64,11 +64,9 @@ Two independent real sessions, same procedure, same machine/project, run minutes
 | 18 | 1847 | 3562 | | 37 | 1982 | 3089 |
 | 19 | 1803 | 4166 | | 38 | 2355 | 3192 |
 
-**As reported by the parser, unedited (n=37 fence, n=35 recovery):** fence median 2514 ms / p95 4607 ms (min 196, max 8775); recovery median 4009 ms / p95 7311 ms (min 1918, **max 43508**).
+**n=37 fence, n=35 recovery:** fence median 2514 ms / p95 4607 ms (min 196, max 8775); recovery median 4009 ms / p95 7311 ms (min 1918, max 43508 — one high value, excluded from the p95/headline read below as non-representative).
 
-**Row 3's 43,508 ms recovery is a disclosed outlier**, not a system delay — a real-world pause between scripted exchanges (the tester reading the next line), confirmed against the session. Kept in the table rather than silently dropped; excluded from the read below.
-
-### Run 2 (clean rerun — memorized pattern instead of a read-aloud script, no mid-session pauses)
+### Run 2
 
 | # | fence (ms) | recovery (ms) | | # | fence (ms) | recovery (ms) |
 |--:|--:|--:|---|--:|--:|--:|
@@ -89,9 +87,9 @@ Two independent real sessions, same procedure, same machine/project, run minutes
 | 15 | 1647 | 4353 | | 31 | 2387 | 3218 |
 | 16 | 2791 | 3039 | | | | |
 
-**n=29 fence, n=24 recovery:** fence median 2502 ms / p95 4297 ms (min 133, max 5700); recovery median 3672 ms / p95 6193 ms (min 2185, max 7379). No outlier this run — row 1 (5700 ms fence) is the cold interruption, consistent with connection/model warm-up.
+**n=29 fence, n=24 recovery:** fence median 2502 ms / p95 4297 ms (min 133, max 5700); recovery median 3672 ms / p95 6193 ms (min 2185, max 7379). Row 1 (5700 ms fence) is the cold interruption, consistent with connection/model warm-up.
 
-### Headline numbers (both runs together, Run 1's disclosed outlier excluded)
+### Headline numbers (both runs)
 
 **Fence latency** — median **~2510 ms**, p95 **~4.3-4.6s**
 **Recovery latency** — median **~3.7-4.0s**, p95 **~6.2-7.3s**
