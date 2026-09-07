@@ -84,6 +84,26 @@ export class GenerationManager {
     if (gen && gen.status === 'active') gen.status = 'completed';
   }
 
+  /**
+   * Un-cancel a generation that was fenced on a suspected interruption which
+   * LiveKit then classified as false (`AgentFalseInterruption`). Makes it
+   * `current` and `active` again with a fresh AbortController (the old signal
+   * already fired). No-op — returns false — if the generation is unknown or a
+   * newer one has since started and genuinely superseded it.
+   */
+  restore(id: number): boolean {
+    const gen = this.get(id);
+    if (!gen) return false;
+    // Only the most recent generation can be restored; if start() has been
+    // called again since, that newer turn is real and this one stays dead.
+    if (this.current && this.current.id > id && this.current.status === 'active') return false;
+    gen.status = 'active';
+    gen.cancelledAt = undefined;
+    gen.abort = new AbortController();
+    this.current = gen;
+    return true;
+  }
+
   history(): readonly Generation[] {
     return this.generations;
   }

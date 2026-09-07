@@ -7,6 +7,7 @@ interface ModeSummary {
   divergentScenarios: number;
   staleMutations: number;
   totalOracleMutations: number;
+  orphanedMutations: number;
 }
 
 function summarize(results: ScenarioResult[], baselineMode: boolean): ModeSummary {
@@ -19,6 +20,7 @@ function summarize(results: ScenarioResult[], baselineMode: boolean): ModeSummar
       (sum, r) => sum + r.actual.nodes.length + r.actual.edges.length - r.staleCount,
       0,
     ),
+    orphanedMutations: forMode.reduce((sum, r) => sum + r.orphanCount, 0),
   };
 }
 
@@ -36,7 +38,7 @@ export function buildReport(): string {
 
   const lines: string[] = [];
   lines.push(
-    `Cartograph benchmark — ${SCENARIOS.length} generated scenarios (delay x interruptAt x corrections) + 1 out-of-order case, run in both modes.`,
+    `Cartograph benchmark — ${SCENARIOS.length} generated scenarios (delay x interruptAt x corrections, plus 3 backchannel-during-narration cases) + 1 out-of-order case, run in both modes.`,
   );
   lines.push('');
   lines.push(['metric', 'cartograph', 'baseline'].join(' | '));
@@ -60,6 +62,13 @@ export function buildReport(): string {
       'out-of-order (41/43/42) resolved correctly',
       oooCartograph.correct ? 'yes' : 'no',
       oooBaseline.correct ? 'yes' : 'no',
+    ].join(' | '),
+  );
+  lines.push(
+    [
+      'orphaned mutations (staged, never committed or dropped)',
+      String(cartograph.orphanedMutations),
+      String(baseline.orphanedMutations),
     ].join(' | '),
   );
   lines.push(

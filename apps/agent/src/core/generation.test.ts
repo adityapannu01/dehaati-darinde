@@ -73,4 +73,36 @@ describe('GenerationManager', () => {
     const gm = new GenerationManager();
     expect(gm.currentId).toBe(0);
   });
+
+  // B1 fix (b) — AgentFalseInterruption recovery
+  it('restore() un-cancels the most recent generation with a fresh abort signal', () => {
+    const gm = new GenerationManager();
+    const g1 = gm.start('first');
+    gm.cancelCurrent();
+    const staleSignal = g1.abort.signal;
+
+    expect(gm.restore(g1.id)).toBe(true);
+    expect(gm.isCurrent(g1.id)).toBe(true);
+    expect(gm.get(g1.id)?.status).toBe('active');
+    expect(gm.get(g1.id)?.cancelledAt).toBeUndefined();
+    expect(gm.get(g1.id)?.abort.signal).not.toBe(staleSignal);
+    expect(gm.get(g1.id)?.abort.signal.aborted).toBe(false);
+  });
+
+  it('restore() refuses once a genuinely newer generation has started', () => {
+    const gm = new GenerationManager();
+    const g1 = gm.start('first');
+    gm.cancelCurrent();
+    const g2 = gm.start('second — a real new turn');
+
+    expect(gm.restore(g1.id)).toBe(false);
+    expect(gm.isCurrent(g2.id)).toBe(true);
+    expect(gm.isCurrent(g1.id)).toBe(false);
+  });
+
+  it('restore() on an unknown id is a no-op returning false', () => {
+    const gm = new GenerationManager();
+    gm.start('first');
+    expect(gm.restore(999)).toBe(false);
+  });
 });

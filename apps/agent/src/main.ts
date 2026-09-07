@@ -11,9 +11,19 @@ import { GenerationManager } from './core/generation.ts';
 import type { LedgerEvent } from '@repo/protocol';
 import { EventLedger } from './core/ledger.ts';
 import { StagingBuffer } from './core/staging.ts';
+import { isBackchannel } from './core/turn-taking.ts';
 import { CanvasPublisher } from './transport/publisher.ts';
 import { createTTS } from './tts.ts';
 import { resolveLLMEngine } from './graph/config.ts';
+
+// Minimum words in a final transcript for it to count as an interruption rather
+// than a backchannel. Wired into both turnHandling.interruption.minWords (so
+// LiveKit itself ignores shorter utterances for interruption) and the B1 fence
+// gate in core/turn-taking.ts (so our generation counter agrees).
+const INTERRUPTION_MIN_WORDS = 2;
+// Minimum speech length (ms) to register as an interruption — filters coughs,
+// chair scrapes, door slams. LiveKit's own default is 500; kept explicit here.
+const INTERRUPTION_MIN_DURATION_MS = 500;
 
 // Load environment variables from a local file.
 // Make sure to set LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET
@@ -142,7 +152,18 @@ export default defineAgent({
         turnDetection: new inference.TurnDetector(),
         // Adaptive interruptions use the turn detector to tell a real interruption from a
         // backchannel like "mhm" or "right", so the agent keeps talking through the latter.
-        interruption: { mode: 'adaptive' },
+        // minWords / minDuration raise the floor so grunts, single filler words, coughs and
+        // chair noise never register as an interruption (B2). resumeFalseInterruption +
+        // falseInterruptionTimeout (both at their LiveKit defaults, pinned here) recover the
+        // agent's speech if a pause turns out to be nothing. The B1 fence in
+        // UserInputTranscribed applies the same minWords floor so the two layers agree.
+        interruption: {
+          mode: 'adaptive',
+          minWords: INTERRUPTION_MIN_WORDS,
+          minDuration: INTERRUPTION_MIN_DURATION_MS,
+          resumeFalseInterruption: true,
+          falseInterruptionTimeout: 2000,
+        },
         // Allow the LLM to generate a response while waiting for the end of turn
         preemptiveGeneration: { enabled: true },
       },
@@ -182,6 +203,16 @@ export default defineAgent({
 
     session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
       if (!ev.isFinal) return;
+      // B1: a backchannel ("mm-hmm", "yeah", "right") must NOT roll the
+      // generation. LiveKit's adaptive interruption already keeps the agent
+      // talking through it; rolling here anyway resets the delivery tracker and
+      // silently orphans the mutation whose sentence is still being spoken.
+      // The word-count floor matches turnHandling.interruption.minWords so the
+      // two layers agree — see core/turn-taking.ts.
+      if (isBackchannel(ev.transcript, { minWords: INTERRUPTION_MIN_WORDS })) {
+        ledger.push('speech_started', gm.currentId, `backchannel ignored: "${ev.transcript}"`);
+        return;
+      }
       pendingInterruptGeneration = gm.currentId;
       gm.cancelCurrent();
       // Live latency measurement (see bench/live-latency.md): interruption -> fenced.
@@ -205,8 +236,23 @@ export default defineAgent({
       }
     });
 
-    session.on(voice.AgentSessionEventTypes.AgentFalseInterruption, () => {
-      ledger.push('speech_started', gm.currentId, 'false interruption ignored');
+    session.on(voice.AgentSessionEventTypes.AgentFalseInterruption, (ev) => {
+      // LiveKit paused the agent on a suspected interruption, waited out
+      // falseInterruptionTimeout with no real follow-up, and is resuming. If we
+      // fenced that generation on the transcript event, restore it so its
+      // resumed speech is `current` again and its staged mutations can still
+      // commit (B1 fix b). We deliberately do NOT reset the delivery tracker
+      // here — the resumed audio rebuilds it, and the eventual
+      // ConversationItemAdded(interrupted=false) flushes anything still pending
+      // via onTurnComplete. A false interruption means the whole reply WAS
+      // heard, so committing all of it on turn-end is correct.
+      const gen = pendingInterruptGeneration ?? gm.currentId;
+      commitGate.unfence(gen);
+      if (pendingInterruptGeneration !== null) {
+        gm.restore(pendingInterruptGeneration);
+      }
+      pendingInterruptGeneration = null;
+      ledger.push('speech_started', gen, `false interruption (resumed=${ev.resumed})`);
     });
 
     session.on(voice.AgentSessionEventTypes.AgentStateChanged, (ev) => {

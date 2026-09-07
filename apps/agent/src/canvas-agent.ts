@@ -32,16 +32,16 @@ export interface SpokenWord {
 export class CanvasAgent extends voice.Agent {
   private deps: CanvasToolsDeps;
   private persona: string;
-  private onSpokenWord: (w: SpokenWord) => void;
-  private onGeneratedChunk: (text: string) => void;
+  private onSpokenWord: (generation: number, w: SpokenWord) => void;
+  private onGeneratedChunk: (generation: number, text: string) => void;
 
   constructor(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any -- matches Agent's own default UserData = any
     opts: voice.AgentOptions<any>,
     deps: CanvasToolsDeps,
     persona: string,
-    onSpokenWord: (w: SpokenWord) => void,
-    onGeneratedChunk: (text: string) => void,
+    onSpokenWord: (generation: number, w: SpokenWord) => void,
+    onGeneratedChunk: (generation: number, text: string) => void,
   ) {
     super(opts);
     // NOT parameter properties — erasableSyntaxOnly forbids them.
@@ -150,10 +150,20 @@ export class CanvasAgent extends voice.Agent {
     text: ReadableStream<string | voice.TimedString> | AsyncIterable<string | voice.TimedString>,
     modelSettings: ModelSettings,
   ): Promise<ReadableStream<string | voice.TimedString> | null> {
+    // B1 fix (a): bind every word from this stream to the generation that
+    // produced the speech, captured now — NOT read live when the word arrives.
+    // A backchannel (or a real interruption's tail audio) can roll gm.currentId
+    // forward while this stream is still draining; crediting those words to the
+    // new generation is what silently orphaned the old one's staged mutation.
+    const streamGeneration = this.deps.gm.currentId;
     const tap = new TransformStream<string | voice.TimedString, string | voice.TimedString>({
       transform: (chunk, controller) => {
         if (voice.isTimedString(chunk)) {
-          this.onSpokenWord({ text: chunk.text, startTime: chunk.startTime, endTime: chunk.endTime });
+          this.onSpokenWord(streamGeneration, {
+            text: chunk.text,
+            startTime: chunk.startTime,
+            endTime: chunk.endTime,
+          });
         }
         controller.enqueue(chunk);
       },
@@ -176,9 +186,10 @@ export class CanvasAgent extends voice.Agent {
     text: ReadableStream<string> | AsyncIterable<string>,
     modelSettings: ModelSettings,
   ): Promise<ReadableStream<AudioFrame> | null> {
+    const streamGeneration = this.deps.gm.currentId;
     const tap = new TransformStream<string, string>({
       transform: (chunk, controller) => {
-        this.onGeneratedChunk(chunk);
+        this.onGeneratedChunk(streamGeneration, chunk);
         controller.enqueue(chunk);
       },
     });

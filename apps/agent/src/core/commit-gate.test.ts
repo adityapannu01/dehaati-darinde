@@ -187,6 +187,37 @@ describe('CommitGate', () => {
     expect(dropped[0]?.detail).toContain('after interruption');
   });
 
+  // B1 — orphan accounting + un-fence
+  it('every staged mutation reaches a terminal state — committed or dropped, never orphaned', () => {
+    const { gate } = build();
+    gate.startGeneration();
+    gate.stage(1, 0, 'Redis', addNode('redis', 'Redis'));
+    gate.stage(1, 1, 'Mongo', addNode('mongo', 'Mongo'));
+
+    let i = 0;
+    for (const w of SENTENCE_1) gate.onWord(1, word(w, i++)); // commits Redis
+    gate.onInterrupted(1); // drops Mongo
+
+    expect(gate.orphanedMutationIds).toEqual([]);
+  });
+
+  it('unfence() reverses a seal so the generation can stage and commit again', () => {
+    const { canvas, gate } = build();
+    gate.startGeneration();
+
+    gate.onInterrupted(1); // sealed
+    expect(gate.stage(1, 0, 'Redis', addNode('redis', 'Redis'))).toBeUndefined();
+
+    gate.unfence(1); // AgentFalseInterruption: it was never a real interruption
+    const staged = gate.stage(1, 0, 'Redis', addNode('redis', 'Redis'));
+    expect(staged).toBeDefined();
+
+    let i = 0;
+    for (const w of SENTENCE_1) gate.onWord(1, word(w, i++));
+    expect(canvas.nodeCount).toBe(1);
+    expect(gate.orphanedMutationIds).toEqual([]);
+  });
+
   it('a fresh generation is not sealed by a previous generation being interrupted', () => {
     const { canvas, gate } = build();
     gate.startGeneration();

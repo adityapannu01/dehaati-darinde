@@ -6,6 +6,7 @@ import { EventLedger } from '../core/ledger.ts';
 import { StagingBuffer } from '../core/staging.ts';
 import { type CanvasDiff, deriveExpectedCanvas, diff, isDiffEmpty } from './oracle.ts';
 import { OUT_OF_ORDER_SCENARIO, SCENARIOS, type Scenario } from './scenarios.ts';
+import { isBackchannel } from '../core/turn-taking.ts';
 
 export interface ScenarioResult {
   scenarioId: string;
@@ -15,14 +16,32 @@ export interface ScenarioResult {
   /** Mutations present on the canvas that the Oracle says should never have landed. */
   staleCount: number;
   divergent: boolean;
+  /** Staged mutations that never reached a terminal state — the B1 silent-orphan failure. Always 0. */
+  orphanCount: number;
+}
+
+export interface RunOptions {
+  baselineMode: boolean;
+  /**
+   * Reproduce the pre-B1 bug: fence on EVERY final transcript, backchannels
+   * included. Used only by the regression test that proves scenario 46 has
+   * teeth — the shipped engine never does this.
+   */
+  legacyFenceEveryTranscript?: boolean;
 }
 
 function wordFor(sentenceLabel: string): { text: string; startTime: number; endTime: number } {
   return { text: `${sentenceLabel}.`, startTime: 0, endTime: 1 };
 }
 
+interface RunOutcome {
+  snapshot: CanvasSnapshot;
+  orphanCount: number;
+}
+
 /** Drives the core engine only — no LiveKit, no audio, no network, no LLM. */
-function runScenario(scenario: Scenario, baselineMode: boolean): CanvasSnapshot {
+function runScenario(scenario: Scenario, opts: RunOptions): RunOutcome {
+  const { baselineMode, legacyFenceEveryTranscript = false } = opts;
   const canvas = new CanvasStore();
   const staging = new StagingBuffer();
   const ledger = new EventLedger();
@@ -39,6 +58,20 @@ function runScenario(scenario: Scenario, baselineMode: boolean): CanvasSnapshot 
     });
 
     for (let s = 0; s < turn.deliveredSentences; s++) {
+      // A backchannel arrives after `backchannelAfterSentence` sentences are
+      // heard. main.ts routes every final transcript through isBackchannel
+      // before the fence; the runner mirrors that decision exactly. `gen.id` is
+      // still passed to onWord below (B1 fix a: words carry the stream-open
+      // generation), so gen N's tail sentences commit gen N's staged mutations
+      // even if the buggy path rolled the counter.
+      if (turn.backchannelAfterSentence === s) {
+        const transcript = 'mm-hmm';
+        if (legacyFenceEveryTranscript || !isBackchannel(transcript)) {
+          gm.cancelCurrent();
+          gm.start(transcript);
+          commitGate.startGeneration();
+        }
+      }
       commitGate.onWord(gen.id, wordFor(`sentence${s}`));
     }
 
@@ -57,11 +90,15 @@ function runScenario(scenario: Scenario, baselineMode: boolean): CanvasSnapshot 
         }
       }
     } else {
-      commitGate.onTurnComplete(gen.id);
+      // main.ts commits the uninterrupted turn against gm.currentId — NOT the
+      // captured generation. A spurious mid-turn roll (the pre-B1 bug) leaves
+      // gm.currentId pointing at the wrong generation, so the tail mutation is
+      // never flushed and orphans silently. The runner mirrors that exactly.
+      commitGate.onTurnComplete(gm.currentId);
     }
   }
 
-  return canvas.snapshot(gm.currentId);
+  return { snapshot: canvas.snapshot(gm.currentId), orphanCount: commitGate.orphanedMutationIds.length };
 }
 
 export function runAll(scenarios: Scenario[] = SCENARIOS): ScenarioResult[] {
@@ -69,7 +106,7 @@ export function runAll(scenarios: Scenario[] = SCENARIOS): ScenarioResult[] {
   for (const scenario of scenarios) {
     const expected = deriveExpectedCanvas(scenario);
     for (const baselineMode of [false, true]) {
-      const actual = runScenario(scenario, baselineMode);
+      const { snapshot: actual, orphanCount } = runScenario(scenario, { baselineMode });
       const d = diff(expected, actual);
       results.push({
         scenarioId: scenario.id,
@@ -78,10 +115,20 @@ export function runAll(scenarios: Scenario[] = SCENARIOS): ScenarioResult[] {
         diff: d,
         staleCount: d.extraNodeIds.length + d.extraEdgeIds.length,
         divergent: !isDiffEmpty(d),
+        orphanCount,
       });
     }
   }
   return results;
+}
+
+/** Regression harness for scenario 46 — runs one scenario with the legacy always-fence bug. */
+export function runScenarioLegacy(scenario: Scenario): RunOutcome {
+  return runScenario(scenario, { baselineMode: false, legacyFenceEveryTranscript: true });
+}
+
+export function runScenarioFixed(scenario: Scenario): RunOutcome {
+  return runScenario(scenario, { baselineMode: false });
 }
 
 export interface OutOfOrderResult {

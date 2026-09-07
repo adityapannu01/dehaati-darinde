@@ -34,11 +34,21 @@ export class CommitGate {
   // Text tapped off the TTS input side (CanvasAgent.ttsNode) — ahead of audio,
   // unlike tracker.spokenText which only advances as words are actually heard.
   private generatedText = '';
+  // The generation the generatedText accumulator currently belongs to. A tail
+  // TTS-input chunk from a superseded generation must not append to the new
+  // one's buffer (B1 fix a, display side).
+  private generatedTextGen = 0;
   // Generations fenced by an interruption. A slow tool that passed its own
   // gm.isCurrent() check a beat before the interruption landed can still reach
   // stage() afterwards; staging it would buffer a mutation that can never
   // commit and log a misleading mutation_staged for a dead generation.
   private sealed = new Set<number>();
+  // Every mutation id ever staged, and every one that reached a terminal state
+  // (committed or dropped). A staged id that never reaches `resolvedIds` is a
+  // silent orphan — the exact B1 failure mode. `orphanedMutationIds` turns
+  // "silent orphaning is impossible" into an assertion the tests enforce.
+  private stagedIds = new Set<string>();
+  private resolvedIds = new Set<string>();
 
   constructor(opts: CommitGateOptions) {
     this.canvas = opts.canvas;
@@ -68,12 +78,14 @@ export class CommitGate {
     }
 
     const staged = this.staging.stage(generation, sentenceIndex, anchorPhrase, mutation);
+    this.stagedIds.add(staged.id);
     this.ledger.push('mutation_staged', generation, staged.id);
 
     if (this.baselineMode) {
       // Naive mode: no commit gate. The mutation lands immediately, whether
       // or not the sentence describing it is ever actually spoken.
       this.staging.commitThrough(generation, sentenceIndex, (m) => this.canvas.apply(m));
+      this.resolvedIds.add(staged.id);
       this.ledger.push('mutation_committed', generation, staged.id);
       return staged;
     }
@@ -98,8 +110,31 @@ export class CommitGate {
     this.generatedText = '';
   }
 
-  /** Feed a chunk off the TTS-input tap (see canvas-agent.ts's ttsNode override). */
-  onGeneratedChunk(text: string): void {
+  /**
+   * Un-seal a generation that main.ts fenced on a suspected interruption which
+   * LiveKit then classified as false (`AgentFalseInterruption`). The agent's
+   * paused speech is resuming, so its remaining sentences must be allowed to
+   * commit their still-staged mutations (B1 fix b).
+   */
+  unfence(generation: number): void {
+    this.sealed.delete(generation);
+  }
+
+  /** Staged mutation ids that never reached a terminal state — must always be empty. */
+  get orphanedMutationIds(): string[] {
+    return [...this.stagedIds].filter((id) => !this.resolvedIds.has(id));
+  }
+
+  /**
+   * Feed a chunk off the TTS-input tap (see canvas-agent.ts's ttsNode override).
+   * `generation` is captured when the tts stream opened, so a late chunk from a
+   * superseded turn resets rather than corrupts the new turn's buffer.
+   */
+  onGeneratedChunk(text: string, generation?: number): void {
+    if (generation !== undefined && generation !== this.generatedTextGen) {
+      this.generatedTextGen = generation;
+      this.generatedText = '';
+    }
     this.generatedText += text;
   }
 
@@ -162,7 +197,26 @@ export class CommitGate {
     }
     const dropped = this.staging.dropAll(generation);
     for (const item of dropped) {
+      this.resolvedIds.add(item.id);
       this.ledger.push('mutation_dropped', generation, item.id);
+    }
+    this.pruneAccounting();
+  }
+
+  /**
+   * Bound the orphan-accounting sets over a long session. Only prune ids that
+   * have already resolved — an unresolved staged id is either legitimately
+   * in-flight or a bug we want the assertion to catch, never something to
+   * quietly forget.
+   */
+  private pruneAccounting(): void {
+    if (this.stagedIds.size <= 256) return;
+    for (const id of this.stagedIds) {
+      if (this.stagedIds.size <= 128) break;
+      if (this.resolvedIds.has(id)) {
+        this.stagedIds.delete(id);
+        this.resolvedIds.delete(id);
+      }
     }
   }
 
@@ -176,6 +230,7 @@ export class CommitGate {
     );
     const heard = this.tracker.deliveredText.toLowerCase();
     for (const item of committed) {
+      this.resolvedIds.add(item.id);
       // Mismatch guard: never blocks a commit, just flags it for the ledger.
       const matched = heard.includes(item.anchorPhrase.toLowerCase());
       this.ledger.push(

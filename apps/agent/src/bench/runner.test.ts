@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { runAll, runOutOfOrderScenario } from './runner.ts';
-import { SCENARIOS } from './scenarios.ts';
+import { runAll, runOutOfOrderScenario, runScenarioFixed, runScenarioLegacy } from './runner.ts';
+import { BACKCHANNEL_SCENARIOS, SCENARIOS } from './scenarios.ts';
 
 describe('benchmark runner — the actual headline claim, checked automatically', () => {
   it('cartograph mode has zero canvas divergence across every generated scenario', () => {
@@ -14,6 +14,11 @@ describe('benchmark runner — the actual headline claim, checked automatically'
     expect(results.every((r) => r.staleCount === 0)).toBe(true);
   });
 
+  it('no scenario ever orphans a staged mutation — silent orphaning is impossible (B1 criterion 3)', () => {
+    const results = runAll(SCENARIOS);
+    expect(results.every((r) => r.orphanCount === 0)).toBe(true);
+  });
+
   it('baseline mode (fencing disabled) diverges on at least one scenario — proves the comparison has teeth', () => {
     const results = runAll(SCENARIOS).filter((r) => r.baselineMode);
     expect(results.some((r) => r.divergent)).toBe(true);
@@ -21,6 +26,26 @@ describe('benchmark runner — the actual headline claim, checked automatically'
 
   it('the generated matrix is non-trivial (more than a handful of scenarios)', () => {
     expect(SCENARIOS.length).toBeGreaterThan(20);
+  });
+});
+
+describe('scenario 46 — backchannel during narration (TECHNICAL_REVIEW.md B1)', () => {
+  it('the fixed engine commits every described mutation and orphans nothing', () => {
+    for (const scenario of BACKCHANNEL_SCENARIOS) {
+      const { snapshot, orphanCount } = runScenarioFixed(scenario);
+      // cache node + api->cache edge, both described and heard.
+      expect(snapshot.nodes.map((n) => n.id).sort(), scenario.id).toEqual(['cache-svc']);
+      expect(snapshot.edges.map((e) => e.id).sort(), scenario.id).toEqual(['cache-edge']);
+      expect(orphanCount, scenario.id).toBe(0);
+    }
+  });
+
+  it('the pre-B1 always-fence bug orphans the tail mutation — the scenario has teeth', () => {
+    const buggy = BACKCHANNEL_SCENARIOS.map(runScenarioLegacy);
+    // At least one delay reproduces: the edge is described and heard but never
+    // lands because the spurious roll left onTurnComplete pointed at the wrong
+    // generation.
+    expect(buggy.some((r) => r.orphanCount > 0 || r.snapshot.edges.length === 0)).toBe(true);
   });
 });
 

@@ -19,6 +19,14 @@ export interface ScenarioTurn {
    * delivered, so the Oracle never includes it either.
    */
   lateArrival?: { anchorPhrase: string; mutation: MutationOp } | undefined;
+  /**
+   * The user emits a backchannel ("mm-hmm") after this many of the turn's
+   * sentences have been heard. Adaptive interruption keeps the agent talking;
+   * the B1 fence must NOT roll the generation. The turn then finishes normally
+   * and every mutation up to `deliveredSentences` must still commit — nothing
+   * orphaned (TECHNICAL_REVIEW.md B1, scenario 46).
+   */
+  backchannelAfterSentence?: number | undefined;
 }
 
 export type InterruptPoint =
@@ -144,4 +152,31 @@ export const OUT_OF_ORDER_SCENARIO: OutOfOrderScenario = {
   resolutionOrder: [0, 2, 1], // gen1's result arrives, then gen3's, then gen2's (last, and stale)
 };
 
-export const SCENARIOS: Scenario[] = generateMatrix();
+/**
+ * Scenario 46 (TECHNICAL_REVIEW.md B1): a backchannel lands mid-narration.
+ * The agent keeps talking and finishes the turn; every described mutation must
+ * still commit. Runs at each tool delay so the backchannel can interleave with
+ * an in-flight staging call, not just a settled one.
+ */
+function backchannelScenario(toolDelayMs: number): Scenario {
+  const cache = { anchorPhrase: 'cache', mutation: addNode('cache-svc', 'cache') };
+  const edge = { anchorPhrase: 'cache', mutation: addEdge('cache-edge', 'api', 'cache-svc') };
+  return {
+    id: `delay${toolDelayMs}_backchannel_mid_narration`,
+    toolDelayMs,
+    interruptAt: 'none',
+    corrections: 1,
+    turns: [
+      {
+        mutations: [cache, edge],
+        deliveredSentences: 2,
+        interrupted: false,
+        backchannelAfterSentence: 1,
+      },
+    ],
+  };
+}
+
+export const BACKCHANNEL_SCENARIOS: Scenario[] = TOOL_DELAYS_MS.map(backchannelScenario);
+
+export const SCENARIOS: Scenario[] = [...generateMatrix(), ...BACKCHANNEL_SCENARIOS];

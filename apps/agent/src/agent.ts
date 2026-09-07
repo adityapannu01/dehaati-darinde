@@ -65,20 +65,21 @@ export function createAgent(deps: CanvasToolsDeps) {
     },
     deps,
     PERSONA,
-    (word) => {
+    (generation, word) => {
       // Verifies the plan's Phase 3 requirement empirically: word.startTime/endTime
       // must be populated, or the Rime plugin isn't running in useWebsocket mode.
       logger.debug(
         `[Cartograph] word: "${word.text}" start=${word.startTime} end=${word.endTime}`,
       );
-      const gen = deps.gm.currentId;
-      if (gen !== lastLoggedAudioGeneration) {
-        lastLoggedAudioGeneration = gen;
+      // `generation` is captured at transcription-stream open (canvas-agent.ts),
+      // not read live here — see B1 fix (a).
+      if (generation !== lastLoggedAudioGeneration) {
+        lastLoggedAudioGeneration = generation;
         // Live latency measurement (see bench/live-latency.md): first audio of a new turn.
-        logger.info(`[latency] first_audio_frame gen=${gen} t=${Date.now()}`);
+        logger.info(`[latency] first_audio_frame gen=${generation} t=${Date.now()}`);
       }
-      deps.commitGate.onWord(gen, word);
+      deps.commitGate.onWord(generation, word);
     },
-    (chunk) => deps.commitGate.onGeneratedChunk(chunk),
+    (generation, chunk) => deps.commitGate.onGeneratedChunk(chunk, generation),
   );
 }
