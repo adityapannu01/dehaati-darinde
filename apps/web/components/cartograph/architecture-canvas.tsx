@@ -24,6 +24,7 @@ import '@xyflow/react/dist/style.css';
 import { useReducedMotion } from 'motion/react';
 import { Icon } from '@iconify/react';
 import { iconForLabel } from '@/lib/cartograph/icon-for-label';
+import { SketchRect, useSketchMode } from '@/components/cartograph/sketch';
 import { DUR, SPRING } from '@/lib/motion';
 import { cn } from '@/lib/shadcn/utils';
 
@@ -67,6 +68,18 @@ function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
   const prevLabel = useRef(data.label);
   const [justReplaced, setJustReplaced] = useState(false);
 
+  // §3.4: opt-in rough.js border.
+  const sketch = useSketchMode();
+  const boxRef = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState({ w: 0, h: 0 });
+  useEffect(() => {
+    if (!sketch || !boxRef.current) return;
+    const el = boxRef.current;
+    const ro = new ResizeObserver(() => setSize({ w: el.offsetWidth, h: el.offsetHeight }));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [sketch]);
+
   useEffect(() => {
     if (prevLabel.current === data.label) return;
     prevLabel.current = data.label;
@@ -98,8 +111,15 @@ function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
           : 0.4
         : 1;
 
+  const strokeColor = data.removing
+    ? 'var(--state-stale)'
+    : data.ghost || (data.forming && !data.named)
+      ? 'var(--muted-foreground)'
+      : color;
+
   return (
     <motion.div
+      ref={boxRef}
       initial={{ scale: 0.92, opacity: 0 }}
       animate={
         data.removing
@@ -109,13 +129,10 @@ function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
       transition={data.removing ? { duration: DUR.slow } : SPRING}
       title={data.ghost && data.proposedBy ? `proposed by ${data.proposedBy}` : undefined}
       style={{
-        borderColor: data.removing
-          ? 'var(--state-stale)'
-          : data.ghost || (data.forming && !data.named)
-            ? 'var(--muted-foreground)'
-            : color,
+        position: 'relative',
+        borderColor: sketch ? 'transparent' : strokeColor,
         borderWidth: 2,
-        borderStyle: data.forming || data.ghost ? 'dashed' : 'solid',
+        borderStyle: !sketch && (data.forming || data.ghost) ? 'dashed' : 'solid',
         borderRadius: 8,
         padding: '6px 10px',
         fontSize: 13,
@@ -128,6 +145,9 @@ function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
         transition: 'box-shadow 0.6s ease-out, border-color 0.4s ease-out',
       }}
     >
+      {sketch && size.w > 0 && (
+        <SketchRect width={size.w} height={size.h} color={strokeColor} seed={data.label} />
+      )}
       <Handle type="target" position={Position.Left} style={handleStyle} isConnectable={false} />
       <Handle type="source" position={Position.Right} style={handleStyle} isConnectable={false} />
       <Handle
