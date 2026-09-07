@@ -7,6 +7,7 @@ import {
   CARTOGRAPH_TOPIC,
   type CanvasEdge,
   type CanvasNode,
+  type FormingElement,
   type LedgerEvent,
   type ServerMessage,
 } from '@repo/protocol';
@@ -25,11 +26,19 @@ export interface CartographStatus {
   pendingText: string;
 }
 
+/** A staged-but-uncommitted element plus whether its naming word has been spoken yet (§3.3). */
+export interface FormingState extends FormingElement {
+  /** true once a delivered word matched this element's anchorPhrase. */
+  named: boolean;
+}
+
 export interface UseCartographReturn {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
   events: LedgerEvent[];
   status: CartographStatus | undefined;
+  /** Elements the agent has staged for the current turn but not yet committed. */
+  forming: FormingState[];
 }
 
 /**
@@ -43,8 +52,12 @@ export function useCartograph(): UseCartographReturn {
   const [edges, setEdges] = useState<CanvasEdge[]>([]);
   const [events, setEvents] = useState<LedgerEvent[]>([]);
   const [status, setStatus] = useState<CartographStatus | undefined>(undefined);
+  const [forming, setForming] = useState<FormingState[]>([]);
   const lastVersion = useRef(0);
   const decoderRef = useRef<TextDecoder | undefined>(undefined);
+  // Words delivered in the current generation, lowercased — used to flip a
+  // forming element to `named` when its anchor phrase is spoken.
+  const spokenRef = useRef<{ generation: number; text: string }>({ generation: 0, text: '' });
 
   useEffect(() => {
     if (!room) return;
@@ -77,6 +90,34 @@ export function useCartograph(): UseCartographReturn {
         case 'events':
           setEvents((prev) => [...prev, ...msg.events].slice(-MAX_EVENTS));
           break;
+        case 'word': {
+          const s = spokenRef.current;
+          if (msg.generation !== s.generation) {
+            spokenRef.current = { generation: msg.generation, text: msg.text.toLowerCase() };
+          } else {
+            spokenRef.current = { generation: s.generation, text: `${s.text} ${msg.text.toLowerCase()}` };
+          }
+          const heard = spokenRef.current.text;
+          setForming((prev) =>
+            prev.map((f) =>
+              f.named || !heard.includes(f.anchorPhrase.toLowerCase()) ? f : { ...f, named: true }
+            )
+          );
+          break;
+        }
+        case 'staging': {
+          if (msg.generation !== spokenRef.current.generation) {
+            spokenRef.current = { generation: msg.generation, text: '' };
+          }
+          const heard = spokenRef.current.text;
+          setForming(
+            msg.elements.map((el) => ({
+              ...el,
+              named: heard.includes(el.anchorPhrase.toLowerCase()),
+            }))
+          );
+          break;
+        }
         case 'status':
           setStatus({
             generation: msg.generation,
@@ -99,5 +140,5 @@ export function useCartograph(): UseCartographReturn {
     };
   }, [room]);
 
-  return { nodes, edges, events, status };
+  return { nodes, edges, events, status, forming };
 }

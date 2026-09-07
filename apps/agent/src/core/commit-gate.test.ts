@@ -187,6 +187,34 @@ describe('CommitGate', () => {
     expect(dropped[0]?.detail).toContain('after interruption');
   });
 
+  // §3.3 — forming elements
+  it('exposes staged addNode/addEdge as forming elements, and drops them once committed', () => {
+    const { gate } = build();
+    gate.startGeneration();
+    gate.stage(1, 0, 'Redis', addNode('redis', 'Redis'));
+    gate.stage(1, 1, 'API', { op: 'addEdge', edge: { id: 'api-redis', source: 'api', target: 'redis' } });
+
+    const forming = gate.formingElements(1);
+    expect(forming.map((f) => f.id).sort()).toEqual(['api-redis', 'redis']);
+    expect(forming.find((f) => f.id === 'redis')).toMatchObject({
+      element: 'node',
+      label: 'Redis',
+      anchorPhrase: 'Redis',
+    });
+
+    let i = 0;
+    for (const w of SENTENCE_1) gate.onWord(1, word(w, i++)); // commits sentence 0 -> the node
+    expect(gate.formingElements(1).map((f) => f.id)).toEqual(['api-redis']); // node gone, edge still forming
+  });
+
+  it('does not surface rename/remove/clear as forming elements (no pre-commit visual)', () => {
+    const { gate } = build();
+    gate.startGeneration();
+    gate.stage(1, 0, 'clear', { op: 'clear' });
+    gate.stage(1, 1, 'X', { op: 'removeNode', nodeId: 'x' });
+    expect(gate.formingElements(1)).toEqual([]);
+  });
+
   // B1 — orphan accounting + un-fence
   it('every staged mutation reaches a terminal state — committed or dropped, never orphaned', () => {
     const { gate } = build();

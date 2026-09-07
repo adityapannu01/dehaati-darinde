@@ -1,4 +1,4 @@
-import type { MutationOp, StagedMutation } from '@repo/protocol';
+import type { FormingElement, MutationOp, StagedMutation } from '@repo/protocol';
 import type { CanvasStore } from './canvas.ts';
 import { DeliveryTracker, type SpokenWord } from './delivery.ts';
 import type { EventLedger } from './ledger.ts';
@@ -123,6 +123,38 @@ export class CommitGate {
   /** Staged mutation ids that never reached a terminal state — must always be empty. */
   get orphanedMutationIds(): string[] {
     return [...this.stagedIds].filter((id) => !this.resolvedIds.has(id));
+  }
+
+  /**
+   * Additive elements staged for `generation` but not yet committed — the
+   * browser renders these as "forming" while their sentence is spoken (§3.3).
+   * Only addNode/addEdge are shown; a rename/replace/remove/clear has no
+   * meaningful pre-commit visual.
+   */
+  formingElements(generation: number): FormingElement[] {
+    const out: FormingElement[] = [];
+    for (const staged of this.staging.pendingFor(generation)) {
+      const m = staged.mutation;
+      if (m.op === 'addNode') {
+        out.push({
+          id: m.node.id,
+          element: 'node',
+          label: m.node.label,
+          kind: m.node.kind,
+          anchorPhrase: staged.anchorPhrase,
+        });
+      } else if (m.op === 'addEdge') {
+        out.push({
+          id: m.edge.id,
+          element: 'edge',
+          label: m.edge.label ?? '',
+          source: m.edge.source,
+          target: m.edge.target,
+          anchorPhrase: staged.anchorPhrase,
+        });
+      }
+    }
+    return out;
   }
 
   /**

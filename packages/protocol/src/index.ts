@@ -80,9 +80,35 @@ export interface LedgerEvent {
   detail?: string | undefined;
 }
 
+/** A node/edge that is staged but not yet committed — the browser draws it as "forming". */
+export interface FormingElement {
+  id: string;
+  /** 'node' carries label/kind; 'edge' carries source/target. */
+  element: 'node' | 'edge';
+  label: string;
+  kind?: NodeKind | undefined;
+  source?: string | undefined;
+  target?: string | undefined;
+  /** The phrase in the describing sentence this element is named by — used to time the reveal. */
+  anchorPhrase: string;
+}
+
 export type ServerMessage =
   | { kind: 'snapshot'; snapshot: CanvasSnapshot }
   | { kind: 'events'; events: LedgerEvent[] }
+  /**
+   * Elements the agent has staged for the current generation but not yet
+   * committed. The browser renders them translucent/forming so a node appears
+   * *as its sentence is spoken*, then solidifies when the snapshot commits it.
+   * An empty list clears all forming elements (interruption, turn end).
+   */
+  | { kind: 'staging'; generation: number; elements: FormingElement[] }
+  /**
+   * One word Rime actually delivered, with its aligned timestamps (§3.3). The
+   * word-level timing the direct WebSocket plugin gives us, forwarded to the
+   * browser so the label reveal can finish exactly as the word is said.
+   */
+  | { kind: 'word'; generation: number; text: string; startTime?: number | undefined; endTime?: number | undefined }
   | {
       kind: 'status';
       generation: number;

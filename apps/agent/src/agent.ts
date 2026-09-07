@@ -1,6 +1,6 @@
 import { dedent, inference } from '@livekit/agents';
 import { logger } from '@repo/logger';
-import { CanvasAgent } from './canvas-agent.ts';
+import { CanvasAgent, type SpokenWord } from './canvas-agent.ts';
 import { type CanvasToolsDeps, createCanvasTools } from './tools/canvas-tools.ts';
 
 // Single source of truth for the agent's persona — under LLM_ENGINE=graph,
@@ -55,7 +55,12 @@ export const PERSONA = dedent`
 // Built as a CanvasAgent (subclasses voice.Agent, not the functional
 // Agent.create) so it can tap the transcription stream for Rime's
 // word-level timestamps and feed them straight into the commit gate.
-export function createAgent(deps: CanvasToolsDeps) {
+export interface AgentHooks {
+  /** Every word Rime delivers, with aligned timestamps — forwarded to the browser (§3.3). */
+  onSpokenWord?: (generation: number, word: SpokenWord) => void;
+}
+
+export function createAgent(deps: CanvasToolsDeps, hooks: AgentHooks = {}) {
   let lastLoggedAudioGeneration = 0;
   return new CanvasAgent(
     {
@@ -83,6 +88,7 @@ export function createAgent(deps: CanvasToolsDeps) {
         logger.info(`[latency] first_audio_frame gen=${generation} t=${Date.now()}`);
       }
       deps.commitGate.onWord(generation, word);
+      hooks.onSpokenWord?.(generation, word);
     },
     (generation, chunk) => deps.commitGate.onGeneratedChunk(chunk, generation),
   );

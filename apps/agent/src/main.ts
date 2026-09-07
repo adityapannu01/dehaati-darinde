@@ -140,6 +140,20 @@ export default defineAgent({
         // nodes to their new places (a diagram that reflows as it grows).
         void relayout();
       }
+      // §3.3: keep the browser's "forming" set in sync with what is staged but
+      // not yet committed, so a node can render as its sentence is spoken.
+      if (
+        event.type === 'mutation_staged' ||
+        event.type === 'mutation_committed' ||
+        event.type === 'mutation_dropped' ||
+        event.type === 'generation_started'
+      ) {
+        void publisher?.send({
+          kind: 'staging',
+          generation: gm.currentId,
+          elements: commitGate.formingElements(gm.currentId),
+        });
+      }
       if (event.type === 'tool_started') {
         toolsInFlight += 1;
         pushStatus();
@@ -203,7 +217,22 @@ export default defineAgent({
 
     // Start the session, which initializes the voice pipeline and warms up the models
     await session.start({
-      agent: createAgent({ gm, commitGate, ledger, canvas, slowMs }),
+      agent: createAgent(
+        { gm, commitGate, ledger, canvas, slowMs },
+        {
+          // §3.3: forward Rime's aligned word timings to the browser so a
+          // forming node's label reveal can finish exactly as the word is said.
+          onSpokenWord: (generation, word) => {
+            void publisher?.send({
+              kind: 'word',
+              generation,
+              text: word.text,
+              startTime: word.startTime,
+              endTime: word.endTime,
+            });
+          },
+        },
+      ),
       room: ctx.room,
       inputOptions: {
         // ai-coustics QUAIL audio enhancement for noise cancellation

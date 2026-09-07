@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import type { CanvasEdge, CanvasNode, NodeKind } from '@repo/protocol';
+import type { FormingState } from '@/hooks/use-cartograph';
 import {
   Background,
   Controls,
@@ -45,6 +46,10 @@ interface CartographNodeData extends Record<string, unknown> {
   justArrived: boolean;
   /** Soft-deleted: still rendered so its exit animation can play, no longer in the incoming props. */
   removing: boolean;
+  /** §3.3: staged but not yet committed — drawn translucent/dashed while its sentence is spoken. */
+  forming: boolean;
+  /** §3.3: a delivered word has matched this element's anchor phrase. */
+  named: boolean;
 }
 
 /**
@@ -76,19 +81,27 @@ function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
     opacity: 0.35,
   } as const;
 
+  // §3.3: a forming node is faint until a delivered word names it, then it
+  // firms up — and finally goes fully solid when its sentence commits it.
+  const targetOpacity = data.removing ? 0 : data.forming ? (data.named ? 0.82 : 0.4) : 1;
+
   return (
     <motion.div
       initial={{ scale: 0.92, opacity: 0 }}
       animate={
         data.removing
           ? { scale: 0.9, opacity: 0, filter: 'blur(8px)' }
-          : { scale: 1, opacity: 1, filter: 'blur(0px)' }
+          : { scale: data.forming && !data.named ? 0.96 : 1, opacity: targetOpacity, filter: 'blur(0px)' }
       }
       transition={data.removing ? { duration: DUR.slow } : SPRING}
       style={{
-        borderColor: data.removing ? 'var(--state-stale)' : color,
+        borderColor: data.removing
+          ? 'var(--state-stale)'
+          : data.forming && !data.named
+            ? 'var(--muted-foreground)'
+            : color,
         borderWidth: 2,
-        borderStyle: 'solid',
+        borderStyle: data.forming ? 'dashed' : 'solid',
         borderRadius: 8,
         padding: '6px 10px',
         fontSize: 13,
@@ -98,7 +111,7 @@ function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
           data.justArrived && !data.removing
             ? `0 0 0 4px color-mix(in oklch, ${color} 40%, transparent)`
             : undefined,
-        transition: 'box-shadow 0.6s ease-out',
+        transition: 'box-shadow 0.6s ease-out, border-color 0.4s ease-out',
       }}
     >
       <Handle type="target" position={Position.Left} style={handleStyle} isConnectable={false} />
@@ -247,6 +260,8 @@ const edgeTypes = { cartographEdge: CartographEdgeView };
 interface ArchitectureCanvasProps {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
+  /** §3.3: staged-but-uncommitted elements, drawn "forming". */
+  forming?: FormingState[];
   className?: string;
 }
 
@@ -268,7 +283,7 @@ export function ArchitectureCanvas(props: ArchitectureCanvasProps) {
   );
 }
 
-function ArchitectureCanvasInner({ nodes, edges, className }: ArchitectureCanvasProps) {
+function ArchitectureCanvasInner({ nodes, edges, forming = [], className }: ArchitectureCanvasProps) {
   // Ids currently on screen (present or mid-exit) — NOT permanently-growing,
   // so a node removed and later re-added under the same id flashes again.
   const seenIds = useRef(new Set<string>());
@@ -322,6 +337,12 @@ function ArchitectureCanvasInner({ nodes, edges, className }: ArchitectureCanvas
     };
   }, []);
 
+  const committedIds = useMemo(() => new Set(nodes.map((n) => n.id)), [nodes]);
+  const formingNodes = useMemo(
+    () => forming.filter((f) => f.element === 'node' && !committedIds.has(f.id)),
+    [forming, committedIds]
+  );
+
   const flowNodes: Node[] = useMemo(() => {
     const live: Node<CartographNodeData>[] = nodes.map((n) => ({
       id: n.id,
@@ -329,7 +350,14 @@ function ArchitectureCanvasInner({ nodes, edges, className }: ArchitectureCanvas
       position: { x: n.x, y: n.y },
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
-      data: { label: n.label, kind: n.kind, justArrived: justArrived.has(n.id), removing: false },
+      data: {
+        label: n.label,
+        kind: n.kind,
+        justArrived: justArrived.has(n.id),
+        removing: false,
+        forming: false,
+        named: false,
+      },
     }));
     const exiting: Node<CartographNodeData>[] = removingNodes.map((n) => ({
       id: n.id,
@@ -337,10 +365,35 @@ function ArchitectureCanvasInner({ nodes, edges, className }: ArchitectureCanvas
       position: { x: n.x, y: n.y },
       sourcePosition: Position.Right,
       targetPosition: Position.Left,
-      data: { label: n.label, kind: n.kind, justArrived: false, removing: true },
+      data: {
+        label: n.label,
+        kind: n.kind,
+        justArrived: false,
+        removing: true,
+        forming: false,
+        named: false,
+      },
     }));
-    return [...live, ...exiting];
-  }, [nodes, justArrived, removingNodes]);
+    // §3.3: forming nodes spawn in a row above the committed graph; when they
+    // commit they get an ELK position and the CSS transform transition glides
+    // them into place.
+    const formingRow: Node<CartographNodeData>[] = formingNodes.map((f, i) => ({
+      id: f.id,
+      type: 'cartographNode',
+      position: { x: i * 190, y: -140 },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
+      data: {
+        label: f.label,
+        kind: f.kind ?? 'service',
+        justArrived: false,
+        removing: false,
+        forming: true,
+        named: f.named,
+      },
+    }));
+    return [...live, ...exiting, ...formingRow];
+  }, [nodes, justArrived, removingNodes, formingNodes]);
 
   const flowEdges: Edge[] = useMemo(
     () =>

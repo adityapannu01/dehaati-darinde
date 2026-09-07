@@ -39,7 +39,7 @@ interface ViewControllerProps {
 
 export function ViewController({ appConfig }: ViewControllerProps) {
   const { isConnected, start } = useSessionContext();
-  const { nodes, edges, events, status } = useCartograph();
+  const { nodes, edges, events, status, forming } = useCartograph();
   const lastToastedSeq = useRef(0);
 
   // A stale tool result being rejected in real time is the money shot —
@@ -78,7 +78,12 @@ export function ViewController({ appConfig }: ViewControllerProps) {
           and the generation HUD + event ledger sit in the corners. */}
       {isConnected && (
         <motion.div key="session-view" {...VIEW_MOTION_PROPS} className="fixed inset-0">
-          <ArchitectureCanvas nodes={nodes} edges={edges} className="absolute inset-0" />
+          <ArchitectureCanvas
+            nodes={nodes}
+            edges={edges}
+            forming={forming}
+            className="absolute inset-0"
+          />
           {status?.baselineMode && (
             <div
               aria-hidden
