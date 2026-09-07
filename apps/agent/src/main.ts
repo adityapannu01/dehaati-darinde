@@ -84,6 +84,7 @@ export default defineAgent({
     }
 
     ledger.setOnPush((event) => {
+      logger.info(`[ledger] ${event.type} gen=${event.generation} ${event.detail ?? ''}`);
       // Coalesce a burst of events (e.g. several mutations committed off one
       // sentence) into a single packet instead of one send per event.
       eventBuffer.push(event);
@@ -97,7 +98,11 @@ export default defineAgent({
       }
 
       if (event.type === 'mutation_committed') {
-        void publisher?.send({ kind: 'snapshot', snapshot: canvas.snapshot(event.generation) });
+        const snap = canvas.snapshot(event.generation);
+        logger.info(
+          `[publish] snapshot v${snap.version} nodes=${snap.nodes.length} edges=${snap.edges.length} publisher=${publisher ? 'ready' : 'MISSING'}`,
+        );
+        void publisher?.send({ kind: 'snapshot', snapshot: snap });
       }
       if (event.type === 'tool_started') {
         toolsInFlight += 1;
@@ -244,10 +249,15 @@ export default defineAgent({
   },
 });
 
-// Run the agent server
+// Run the agent server.
+// AGENT_NAME set -> explicit dispatch (worker only joins rooms that request it
+// by name). AGENT_NAME empty/unset -> automatic dispatch (worker joins every
+// room). Local dev uses automatic so a frontend token doesn't need a matching
+// RoomAgentDispatch to get the agent in the room.
+const agentName = process.env.AGENT_NAME;
 cli.runApp(
   new ServerOptions({
     agent: fileURLToPath(import.meta.url),
-    agentName: process.env.AGENT_NAME || 'DD_agent',
+    ...(agentName ? { agentName } : {}),
   }),
 );

@@ -1,4 +1,5 @@
 import type { Room } from '@livekit/rtc-node';
+import { logger } from '@repo/logger';
 import { CARTOGRAPH_TOPIC, type ServerMessage } from '@repo/protocol';
 
 /**
@@ -15,9 +16,14 @@ export class CanvasPublisher {
   }
 
   async send(msg: ServerMessage): Promise<void> {
-    await this.room.localParticipant?.publishData(this.encoder.encode(JSON.stringify(msg)), {
-      topic: CARTOGRAPH_TOPIC,
-      reliable: true,
-    });
+    try {
+      await this.room.localParticipant?.publishData(this.encoder.encode(JSON.stringify(msg)), {
+        topic: CARTOGRAPH_TOPIC,
+        reliable: true,
+      });
+      logger.info(`[publisher] sent ${msg.kind} (lp=${this.room.localParticipant ? 'yes' : 'no'})`);
+    } catch (err) {
+      logger.error(`[publisher] send ${msg.kind} failed: ${String(err)}`);
+    }
   }
 }

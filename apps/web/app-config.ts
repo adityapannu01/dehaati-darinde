@@ -65,7 +65,10 @@ export const APP_CONFIG_DEFAULTS: AppConfig = {
   // audioVisualizerType: 'aura',
 
   // agent dispatch configuration
-  agentName: process.env.AGENT_NAME || 'DD_agent',
+  // Only request explicit agent dispatch when AGENT_NAME is set. Unset -> the
+  // frontend asks for no named agent and relies on the worker's automatic
+  // dispatch (see apps/agent/src/main.ts).
+  agentName: process.env.AGENT_NAME || undefined,
 
   // LiveKit Cloud Sandbox configuration
   sandboxId: undefined,

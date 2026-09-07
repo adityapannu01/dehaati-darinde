@@ -9,8 +9,10 @@ import {
   type Edge,
   EdgeLabelRenderer,
   type EdgeProps,
+  Handle,
   type Node,
   type NodeProps,
+  Position,
   ReactFlow,
   getBezierPath,
 } from '@xyflow/react';
@@ -57,6 +59,16 @@ function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
     return () => clearTimeout(timer);
   }, [data.label]);
 
+  // Read-only diagram: handles exist only so xyflow can anchor edges to a
+  // concrete point on each side. They're not interactive and near-invisible.
+  const handleStyle = {
+    width: 6,
+    height: 6,
+    background: color,
+    border: 'none',
+    opacity: 0.35,
+  } as const;
+
   return (
     <motion.div
       initial={{ scale: 0.92, opacity: 0 }}
@@ -82,6 +94,22 @@ function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
         transition: 'box-shadow 0.6s ease-out',
       }}
     >
+      <Handle type="target" position={Position.Left} style={handleStyle} isConnectable={false} />
+      <Handle type="source" position={Position.Right} style={handleStyle} isConnectable={false} />
+      <Handle
+        type="target"
+        position={Position.Top}
+        id="t"
+        style={handleStyle}
+        isConnectable={false}
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="b"
+        style={handleStyle}
+        isConnectable={false}
+      />
       <AnimatePresence mode="wait">
         <motion.span
           key={data.label}
@@ -249,12 +277,16 @@ export function ArchitectureCanvas({ nodes, edges, className }: ArchitectureCanv
       id: n.id,
       type: 'cartographNode',
       position: { x: n.x, y: n.y },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
       data: { label: n.label, kind: n.kind, justArrived: justArrived.has(n.id), removing: false },
     }));
     const exiting: Node<CartographNodeData>[] = removingNodes.map((n) => ({
       id: n.id,
       type: 'cartographNode',
       position: { x: n.x, y: n.y },
+      sourcePosition: Position.Right,
+      targetPosition: Position.Left,
       data: { label: n.label, kind: n.kind, justArrived: false, removing: true },
     }));
     return [...live, ...exiting];

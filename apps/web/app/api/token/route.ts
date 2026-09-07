@@ -39,6 +39,7 @@ export async function POST(req: Request) {
 
     // Parse room config from request body.
     const body = await req.json();
+    logger.info(`[Token API] request body: ${JSON.stringify(body)}`);
     const roomConfig = body?.room_config
       ? RoomConfiguration.fromJson(body.room_config, { ignoreUnknownFields: true })
       : new RoomConfiguration();
