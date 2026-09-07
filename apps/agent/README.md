@@ -159,6 +159,12 @@ It uses `turbo prune` to isolate the agent and its workspace dependencies, then 
 | `TTS_PROVIDER` | `rime` (default), `rime-plugin`, or `fishaudio` |
 | `RIME_MODEL`, `RIME_VOICE`, `RIME_LANGUAGE`, `RIME_SPEED` | Optional Rime tuning (see `.env.example`) |
 | `RIME_API_KEY` | **Only** when `TTS_PROVIDER=rime-plugin` |
+| `LLM_ENGINE`, `GRAPH_LLM_MODEL`, `GRAPH_STRUCTURED_METHOD` | `direct` (default) or `graph` — the LangGraph planner |
+| `SLOW_TOOL_MS` | Synthetic staging delay (default `0`); the deterministic benchmark fixture |
+| `CARTOGRAPH_BASELINE` | `true` disables fencing + the commit gate (naive-agent comparison) |
+| `ADDRESSIVITY`, `ADDRESSIVITY_THRESHOLD` | `true` enables ambient meeting mode (§2); τ default `0.6` |
+| `LAYOUT_DIRECTION` | `RIGHT` (default) or `DOWN` — ELK layout direction |
+| `COMPONENT_LOOKUP` | `fixture` skips the network for `explainComponent` (stage safety) |
 
 ## Self-hosted LiveKit
 

@@ -47,7 +47,7 @@ Live interruption/recovery latency (fence latency, recovery latency): **not yet 
 
 Rime pronunciation: 44 infrastructure terms rendered through the shipped `coda:celeste` WebSocket path in two spellings each — clips + wording table in `apps/agent/src/bench/pronunciation/`. `saveOovs: true` is now on so Rime logs the words it guessed at.
 
-`pnpm test` (~159 tests across core engine, tools, commit gate, transport, benchmark, planner/graph, layout, turn-taking, and the agent evals): **all passing** as of this commit.
+`pnpm test` (~202 tests across core engine, tools, commit gate, transport, benchmark, planner/graph, layout, turn-taking, addressivity/proposals/ambient, the real slow tool, and the agent evals): **all passing** as of this commit.
 
 ## 5. Limitations
 
@@ -57,7 +57,9 @@ Rime pronunciation: 44 infrastructure terms rendered through the shipped `coda:c
 - With a slow tool, a mutation commits when the tool completes (the catch-up path), not at the instant its sentence ends — heard-correct, but not visually instantaneous. `SLOW_TOOL_MS` defaults to `0` outside the interruption stress demo so the two coincide.
 - 48 generated scenarios + 1 hand-scripted out-of-order case are not a production traffic distribution — they exercise the specific race the commit gate closes, not general robustness. The generator matrix is parametric (`apps/agent/src/bench/scenarios.ts`) rather than 100 hand-authored scripts, trading raw scenario count for higher confidence that each generated case is actually correct.
 - Single-room scale; no multi-agent handoffs, telephony, or multilingual routing.
-- Live interruption/recovery latency has not yet been measured — see §4.
+- Live interruption/recovery latency has not yet been measured — see §4. A parser (`pnpm --filter DD_agent latency`) turns a captured session log into the table.
+- Ambient meeting mode (`ADDRESSIVITY=true`) is unvalidated with two live browser tabs — the classifier, proposal store and safety invariant (scenarios 47/48) are unit-tested and audio-independent, but the multi-participant STT subscription has not run against real audio. Classifier F1 on the synthetic fixture: salient 0.92, addressed precision 1.0 / recall 0.30.
+- Two-tab render sync (§5.2) is expected to work (`publishData` is a room broadcast) but has not been recorded.
 
 ## Demo script (4-5 minutes)
 

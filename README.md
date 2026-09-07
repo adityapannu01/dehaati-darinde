@@ -59,6 +59,7 @@ browser mic → LiveKit room → DD_agent worker
 - **Layered layout** (`apps/agent/src/core/layout.ts`): the agent recomputes an ELK `layered` layout after every committed mutation and re-publishes node positions; the browser animates nodes to their new places. The agent stays the sole owner of positions.
 - **Word-synced forming nodes** (`{ kind: 'word' | 'staging' }` on the data channel): Rime's aligned word timestamps are forwarded to the browser, and a staged-but-uncommitted node renders "forming" (dashed, translucent) — firming up as the word naming it is spoken, going solid when its sentence commits it.
 - **Pronunciation harness** (`apps/agent/src/bench/pronunciation/`): 44 infrastructure terms rendered through the shipped `coda:celeste` WebSocket path in two spellings each, with `saveOovs` on. Clips + a wording table are committed; `pnpm --filter DD_agent pronunciation` regenerates.
+- **Ambient meeting mode** (`ADDRESSIVITY=true`, `apps/agent/src/core/{addressivity,proposals,ambient-listener}.ts`): every overheard utterance is scored on two independent axes — *addressed* (→ the agent speaks) and *salient* (→ it draws). A colleague's idea becomes a dashed **ghost** proposal, promoted to committed state only when a human confirms it or the agent narrates it, removed by a disagreement or a timeout. **Overheard speech can only ever create or destroy proposals — committed state changes only on addressed speech.**
 
 ## Setup
 
@@ -77,10 +78,18 @@ pnpm dev            # runs the agent worker + the web frontend
 
 Open http://localhost:3000, click **Start call**, and describe an architecture out loud.
 
+### What the agent can draw
+
+`addService` · `connectServices` (with `flow: sync|async` and `bidirectional`) · `replaceComponent` · `renameComponent` · `removeComponent` · `groupComponents` (a labelled boundary — VPC, trust boundary, bounded context) · `undoLast` (reverse the last committed change) · `clearCanvas` (one atomic wipe) · `exportDiagram` (a copyable Mermaid panel) · `explainComponent` (a real network lookup with a bundled fixture) · `describeArchitecture` (read the diagram back).
+
+Nodes get real vendor logos (Iconify) matched from their labels. `?sketch=1` on the URL flips node borders to a hand-drawn rough.js style (opt-in, reversible).
+
 ### Demo/benchmark knobs
 
-- `SLOW_TOOL_MS` (default `5000`) — artificial delay injected into staging tool calls, so an interruption race reproduces reliably instead of only sometimes.
+- `SLOW_TOOL_MS` (default `0`) — artificial delay injected into staging tool calls, so an interruption race reproduces reliably. The **deterministic test fixture** the benchmark relies on — kept deliberately (§5.4). `explainComponent` is a *real* slow tool alongside it.
 - `CARTOGRAPH_BASELINE=true` — disables generation fencing and the commit gate entirely (mutations land the instant they're staged, regardless of whether the describing sentence was ever spoken). This is the naive-agent comparison mode; the HUD shows a **BASELINE MODE** badge when it's on.
+- `ADDRESSIVITY=true` (+ `ADDRESSIVITY_THRESHOLD`, default `0.6`) — ambient meeting mode (§2): listen to *every* participant, not just the one `AgentSession` binds to. A second engineer's overheard speech can only ever create or destroy **proposals** (dashed "ghost" nodes); committed state still changes only on speech addressed to the agent. **Not yet validated with two live browser tabs** — the multi-participant STT path is best-effort.
+- `LAYOUT_DIRECTION` (`RIGHT` | `DOWN`) · `COMPONENT_LOOKUP=fixture` (skip the network for `explainComponent` on stage).
 
 ### Benchmark
 
@@ -91,6 +100,8 @@ pnpm --filter DD_agent benchmark
 Runs 48 deterministic scenarios (a `toolDelay x interruptAt x corrections` matrix, plus 3 backchannel-during-narration cases) plus an explicit out-of-order case, twice each — once with fencing on, once with `CARTOGRAPH_BASELINE`'s naive behaviour — against an independent oracle. Also reports the orphaned-mutation count (always 0). No LiveKit, no audio, no LLM: pure TypeScript, reproducible on any machine. See [`RIME_EVIDENCE.md`](RIME_EVIDENCE.md) for the actual measured numbers.
 
 Live interruption/recovery latency: `pnpm --filter DD_agent dev 2>&1 | tee /tmp/agent.log`, hold a call with ~20 real interruptions, then `pnpm --filter DD_agent latency < /tmp/agent.log` — see [`apps/agent/src/bench/live-latency.md`](apps/agent/src/bench/live-latency.md).
+
+Other harnesses: `pnpm --filter DD_agent pronunciation` (44 infra terms × 2 spellings through the shipped Rime path → clips + `bench/pronunciation/REPORT.md`); `pnpm --filter DD_agent addressivity` (hand-labelled §2 confusion matrix → `bench/ADDRESSIVITY_MATRIX.md`). The ambient safety invariant (scenarios 47/48) is asserted in `bench/ambient.test.ts`.
 
 ## Third-party services
 
@@ -113,9 +124,12 @@ The aesthetic layer copies component source (not a runtime dependency) from:
 - The 48 generated benchmark scenarios plus one hand-scripted out-of-order case are not a production traffic distribution — they exercise the specific race the commit gate is built to close, not general robustness.
 - A backchannel is classified lexically (`core/turn-taking.ts`) with a 2-word floor matching `turnHandling.interruption.minWords`. A single-word command that isn't in the hard-interrupt list ("stop", "wait", "no", "actually", …) — e.g. "bigger" — is treated as a backchannel and won't fence until the user says more.
 - Live interruption/recovery latency is instrumented (`[latency]` log lines + `pnpm --filter DD_agent latency`) but **not yet measured** — see `apps/agent/src/bench/live-latency.md`.
-- Single-room scale; no multi-agent handoffs, no telephony, no multilingual routing (all cut deliberately — seeded in `IMPLEMENTATION_PLAN.md §2.3`, not rebuilt here since it isn't committed to the repo).
-- No addressivity model yet: the agent binds to one participant and treats every final transcript from them as directed at it. "Leave it running in a meeting" (`TECHNICAL_REVIEW.md §2`) is not built.
+- Single-room scale; no multi-agent handoffs, no telephony, no multilingual routing.
+- **Ambient meeting mode (§2) is behind `ADDRESSIVITY=true` and unvalidated live.** The classifier (prefilter + optional model), the ghost/proposal store, the safety invariant, and scenarios 47/48 are all unit-tested and audio-independent. The one piece that needs a two-browser-tab check is the multi-participant STT subscription in `core/ambient-listener.ts` — LiveKit Agents 1.7.1 binds `AgentSession` to a single participant, so a second engineer needs a separate STT stream off the raw track, and that plumbing has not been exercised with real audio. Measured classifier F1 (synthetic fixture): salient 0.92, addressed precision 1.0 / recall 0.30 — the prefilter never false-triggers the agent into speaking; recall is the model layer's job.
+- Ghost labels are extracted from the overheard utterance heuristically (`ghostLabelFrom` in `main.ts`), not by a planner pass — cheaper for frequent ambient chatter, at the cost of occasionally awkward proposal names. A proposal is low-stakes by design.
+- **Two-tab "collaborative" render sync (§5.2) is not verified.** `publishData` is a room broadcast so a second browser tab in the same room *should* see the same canvas; this hasn't been recorded.
 - `apps/web`'s text-chat input is not wired to trigger agent turns in this starter — voice is the only input path exercised end-to-end.
+- `apps/web`'s ESLint config (`next lint` + `.eslintrc.json`) is incompatible with the installed ESLint 9 and errors out; `pnpm --filter web check-types` is clean. Pre-existing; a flat-config migration is out of scope here.
 
 ## Failure behaviour
 
