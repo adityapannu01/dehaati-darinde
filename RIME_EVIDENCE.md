@@ -43,7 +43,14 @@ Measured 2026-09-07, this repo, `pnpm --filter DD_agent benchmark`:
 
 The 3 backchannel-during-narration scenarios (46) guard the B1 fix: a "mm-hmm" mid-sentence must not roll the generation and orphan the mutation whose sentence is still being spoken. `runner.test.ts` also runs the pre-fix always-fence path and asserts it *does* orphan — so the scenario has teeth.
 
-Live interruption/recovery latency (fence latency, recovery latency): **not yet measured** — instrumented (`[latency]` log lines) with a parser (`pnpm --filter DD_agent latency < agent.log`), pending a real captured session per `live-latency.md`. No numbers are invented in the meantime.
+Live interruption/recovery latency, measured 2026-09-08 (real call, ~20 interruptions, full table and disclosed caveats in [`live-latency.md`](apps/agent/src/bench/live-latency.md)):
+
+| Leg | median | p95 | min | max |
+|---|--:|--:|--:|--:|
+| Fence latency (interrupt spoken → generation cancelled) | 2514 ms | 4607 ms | 196 ms | 8775 ms |
+| Recovery latency (cancelled → next turn's first audio) | 4009 ms | 7311 ms | 1918 ms | 43508 ms* |
+
+\*One outlier (row 3, 43.5s) is a real pause between scripted test exchanges, not system latency — disclosed and excluded from the read below, not silently dropped; see `live-latency.md` for the full unedited table. Fence latency is dominated by how long the user's own interrupting phrase takes to say + transcribe, not raw cancellation (`cancelCurrent()` is synchronous). Recovery latency — LiveKit Inference LLM round-trip + Rime TTS time-to-first-audio — is the real optimization target and is slower than we'd like; reported as measured, not tuned away before reporting.
 
 Rime pronunciation: 44 infrastructure terms rendered through the shipped `coda:celeste` WebSocket path in three variants each (plain / hand-respelled / **the shipped `applyLexicon` output**) — clips + comparison table in `apps/agent/src/bench/pronunciation/REPORT.md`. `RIME_SAVE_OOVS=true` logs Rime's out-of-vocabulary words for a real session.
 
@@ -90,9 +97,10 @@ Code-switching: `universal-3-5-pro` *understands* mixed-language input natively;
 - 48 generated scenarios + 1 hand-scripted out-of-order case are not a production traffic distribution — they exercise the specific race the commit gate closes, not general robustness. The generator matrix is parametric (`apps/agent/src/bench/scenarios.ts`) rather than 100 hand-authored scripts, trading raw scenario count for higher confidence that each generated case is actually correct.
 - Single-room scale; no multi-agent handoffs or telephony.
 - Multilingual (`RIME_MULTILINGUAL=true`): non-English runs in degraded commit mode (see §4a — Coda gives no non-English word timestamps). `eng` + `hin` tested; the other 7 Coda languages configured but unverified. Not a translation feature — the agent replies in the room's language, it does not translate.
-- Live interruption/recovery latency has not yet been measured — see §4. A parser (`pnpm --filter DD_agent latency`) turns a captured session log into the table.
+- Live interruption/recovery latency is measured — see §4 and `live-latency.md`. Recovery latency (~4s median) is slower than ideal; not yet tuned.
+- A real reliability bug was found and fixed during this round of testing: `connectServices`/`renameComponent`/`removeComponent`/`replaceComponent`/`groupComponents` used to hash whatever label the LLM said directly into a node id, so a natural paraphrase ("connect the gateway to the auth service" for a node actually added as "API Gateway") produced a dangling reference — the mutation staged and "succeeded" but nothing rendered, silently. `CanvasStore.resolveId` now resolves spoken labels against the actual canvas (exact → case-insensitive → substring → generic-kind-noun → token overlap), falling back to the old behaviour only when nothing matches unambiguously. Regression-tested against the exact failing transcripts.
 - Ambient meeting mode (`ADDRESSIVITY=true`) is unvalidated with two live browser tabs — the classifier, proposal store and safety invariant (scenarios 47/48) are unit-tested and audio-independent, but the multi-participant STT subscription has not run against real audio. Classifier F1 on the synthetic fixture: salient 0.92, addressed precision 1.0 / recall 0.30.
-- Two-tab render sync (§5.2) is expected to work (`publishData` is a room broadcast) but has not been recorded.
+- **Collaboration is not a claim of this submission.** Cartograph is presented as a single-operator tool; `publishData` broadcasts to every participant in the room so a second viewer likely sees the same canvas, but this has not been tested and nothing in the pitch depends on it.
 
 ## Demo script (4-5 minutes)
 

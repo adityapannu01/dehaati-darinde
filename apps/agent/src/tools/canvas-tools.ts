@@ -128,8 +128,11 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
         deps.ledger.push('tool_stale_discarded', gen, `connectServices(${anchor})`);
         return 'STALE_DISCARDED: this instruction was superseded. Do not mention this result.';
       }
-      const sourceId = slug(sourceLabel);
-      const targetId = slug(targetLabel);
+      // Resolve against the actual canvas, not a blind slug of whatever the
+      // LLM said — see CanvasStore.resolveId for why ("gateway" needs to find
+      // the node labelled "API Gateway").
+      const sourceId = deps.canvas.resolveId(sourceLabel);
+      const targetId = deps.canvas.resolveId(targetLabel);
       deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), targetLabel, {
         op: 'addEdge',
         edge: {
@@ -172,7 +175,7 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
       }
       deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), newLabel, {
         op: 'replaceNode',
-        nodeId: slug(targetLabel),
+        nodeId: deps.canvas.resolveId(targetLabel),
         label: newLabel,
         kind: kind as NodeKind,
       });
@@ -201,7 +204,7 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
       }
       deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), newLabel, {
         op: 'renameNode',
-        nodeId: slug(targetLabel),
+        nodeId: deps.canvas.resolveId(targetLabel),
         label: newLabel,
       });
       return `Staged: rename to ${newLabel} once you have said so.`;
@@ -223,7 +226,7 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
       }
       deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), targetLabel, {
         op: 'removeNode',
-        nodeId: slug(targetLabel),
+        nodeId: deps.canvas.resolveId(targetLabel),
       });
       return `Staged: removal of ${targetLabel} once you have said so.`;
     },
@@ -255,7 +258,7 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
         op: 'addGroup',
         id: slug(label),
         label,
-        memberIds: members.map(slug),
+        memberIds: members.map((m) => deps.canvas.resolveId(m)),
       });
       deps.ledger.push('tool_completed', gen, `groupComponents(${label})`);
       return `Staged: a "${label}" boundary around ${members.join(', ')} once you have said so.`;

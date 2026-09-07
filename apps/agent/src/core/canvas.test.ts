@@ -202,4 +202,66 @@ describe('CanvasStore', () => {
     expect(summary).toContain('Redis Cache (datastore)');
     expect(summary).toContain('API Gateway -> Redis Cache (reads/writes)');
   });
+
+  describe('resolveId', () => {
+    it('resolves an exact slug id (today\'s behaviour, unchanged)', () => {
+      const store = new CanvasStore();
+      store.apply({ op: 'addNode', node: node('api-gateway', 'API Gateway') });
+      expect(store.resolveId('API Gateway')).toBe('api-gateway');
+    });
+
+    it('resolves a case-insensitive exact label match', () => {
+      const store = new CanvasStore();
+      store.apply({ op: 'addNode', node: node('api-gateway', 'API Gateway') });
+      expect(store.resolveId('api gateway')).toBe('api-gateway');
+    });
+
+    it('resolves a paraphrase that is an unambiguous substring of the real label — the observed bug', () => {
+      const store = new CanvasStore();
+      store.apply({ op: 'addNode', node: node('api-gateway', 'API Gateway') });
+      store.apply({ op: 'addNode', node: node('auth-service', 'auth service') });
+      // Live log: "connect the gateway to the auth service" produced
+      // sourceLabel "gateway" against a node actually labelled "API Gateway" —
+      // slug("gateway") !== "api-gateway", so the edge silently dangled.
+      expect(store.resolveId('gateway')).toBe('api-gateway');
+      expect(store.resolveId('auth service')).toBe('auth-service');
+    });
+
+    it('resolves "the database" to the sole datastore node — no textual overlap with its real label', () => {
+      const store = new CanvasStore();
+      store.apply({ op: 'addNode', node: { ...node('postgres', 'Postgres'), kind: 'datastore' } });
+      // Live log: targetLabel "database" against a node labelled "Postgres" —
+      // no substring/token relationship at all; only the kind-noun path finds it.
+      expect(store.resolveId('the database')).toBe('postgres');
+      expect(store.resolveId('database')).toBe('postgres');
+    });
+
+    it('does not guess when a generic kind word is ambiguous between two nodes', () => {
+      const store = new CanvasStore();
+      store.apply({ op: 'addNode', node: { ...node('postgres', 'Postgres'), kind: 'datastore' } });
+      store.apply({ op: 'addNode', node: { ...node('redis', 'Redis'), kind: 'datastore' } });
+      expect(store.resolveId('the database')).toBe(slugOf('the database'));
+    });
+
+    it('does not guess when a substring match is ambiguous between two nodes', () => {
+      const store = new CanvasStore();
+      store.apply({ op: 'addNode', node: node('api-gateway', 'API Gateway') });
+      store.apply({ op: 'addNode', node: node('gateway-health-check', 'Gateway Health Check') });
+      expect(store.resolveId('gateway')).toBe(slugOf('gateway'));
+    });
+
+    it('falls back to slug(label) for a genuinely new/unknown reference', () => {
+      const store = new CanvasStore();
+      store.apply({ op: 'addNode', node: node('api-gateway', 'API Gateway') });
+      expect(store.resolveId('a brand new service')).toBe(slugOf('a brand new service'));
+    });
+  });
 });
+
+function slugOf(label: string): string {
+  return label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-+|-+$)/g, '');
+}

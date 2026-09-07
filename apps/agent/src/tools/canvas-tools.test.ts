@@ -158,6 +158,50 @@ describe('canvas tools fencing contract', () => {
     expect(edge.edge).not.toHaveProperty('bidirectional');
   });
 
+  it('resolves a paraphrased sourceLabel/targetLabel against the canvas instead of dangling — the observed live bug', async () => {
+    const { gm, canvas, staging, connectServices } = setup(1);
+    const sig = new AbortController().signal;
+    const g1 = gm.start('add and connect');
+
+    // The nodes are already committed on the canvas by the time the user asks
+    // to connect them — addService's own staging delay is irrelevant here.
+    canvas.apply({ op: 'addNode', node: { id: 'api-gateway', label: 'API Gateway', kind: 'gateway', x: 0, y: 0 } });
+    canvas.apply({
+      op: 'addNode',
+      node: { id: 'auth-service', label: 'auth service', kind: 'service', x: 0, y: 0 },
+    });
+
+    // Live transcript: "connect the gateway to the auth service" — the LLM
+    // paraphrases the node it just named "API Gateway" down to "gateway".
+    await callExecute(
+      connectServices,
+      { sourceLabel: 'gateway', targetLabel: 'auth service' },
+      { abortSignal: sig },
+    );
+
+    const edge = staging.pendingFor(g1.id)[0]?.mutation as { edge: { source: string; target: string } };
+    expect(edge.edge.source).toBe('api-gateway');
+    expect(edge.edge.target).toBe('auth-service');
+  });
+
+  it('resolves "the database" to the sole datastore even with zero textual overlap with its real label', async () => {
+    const { gm, canvas, staging, connectServices } = setup(1);
+    const sig = new AbortController().signal;
+    const g1 = gm.start('add and connect');
+
+    canvas.apply({ op: 'addNode', node: { id: 'api-gateway', label: 'API Gateway', kind: 'gateway', x: 0, y: 0 } });
+    canvas.apply({ op: 'addNode', node: { id: 'postgres', label: 'Postgres', kind: 'datastore', x: 0, y: 0 } });
+
+    await callExecute(
+      connectServices,
+      { sourceLabel: 'API Gateway', targetLabel: 'database' },
+      { abortSignal: sig },
+    );
+
+    const edge = staging.pendingFor(g1.id)[0]?.mutation as { edge: { target: string } };
+    expect(edge.edge.target).toBe('postgres');
+  });
+
   it('falls back to the internal counter when sentenceIndex is absent', async () => {
     const { gm, staging, addService } = setup(1);
     const g1 = gm.start('add two');

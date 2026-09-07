@@ -1,4 +1,11 @@
-import type { CanvasEdge, CanvasGroup, CanvasNode, CanvasSnapshot, MutationOp } from '@repo/protocol';
+import type {
+  CanvasEdge,
+  CanvasGroup,
+  CanvasNode,
+  CanvasSnapshot,
+  MutationOp,
+  NodeKind,
+} from '@repo/protocol';
 
 // The agent-side source of truth for the shared architecture diagram.
 // Mutations only ever arrive here through CommitGate, once Rime has actually
@@ -10,6 +17,34 @@ const LAYOUT_SPACING = 220;
 const GROUP_PADDING = 28;
 const NODE_W = 160;
 const NODE_H = 46;
+
+function slug(label: string): string {
+  return label
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/(^-+|-+$)/g, '');
+}
+
+function normalize(label: string): string {
+  return label.trim().toLowerCase();
+}
+
+// A spoken generic noun resolves to a node's kind when the label itself
+// doesn't overlap the node's actual name at all ("the database" -> Postgres
+// has zero shared substring/tokens with "postgres" — this is the only path
+// that catches it). Only applied when it uniquely picks one node.
+const GENERIC_KIND_WORDS: Record<string, NodeKind> = {
+  database: 'datastore',
+  datastore: 'datastore',
+  db: 'datastore',
+  cache: 'datastore',
+  service: 'service',
+  gateway: 'gateway',
+  queue: 'queue',
+  topic: 'queue',
+  broker: 'queue',
+};
 
 export class CanvasStore {
   private nodes = new Map<string, CanvasNode>();
@@ -111,6 +146,69 @@ export class CanvasStore {
   /** True when there is at least one committed mutation that `undo` could reverse. */
   get canUndo(): boolean {
     return this.history.length > 0;
+  }
+
+  /**
+   * Resolve a spoken label to an existing node's id. Tools that reference an
+   * EXISTING component (connectServices, renameComponent, removeComponent,
+   * replaceComponent, groupComponents) call this instead of hashing the label
+   * themselves. The LLM routinely paraphrases — "connect the gateway to the
+   * auth service" for a node actually labelled "API Gateway", or "the
+   * database" for one labelled "Postgres" — and a naive slug() of the
+   * paraphrase silently misses: the mutation stages, "succeeds", and produces
+   * a dangling reference that never renders. No error, no signal, just a
+   * component that looks connected in the transcript and isn't on screen.
+   *
+   * Resolution order, first unambiguous hit wins:
+   *   1. exact id (today's behaviour — the fast, fully backward-compatible path)
+   *   2. exact label match, case-insensitive
+   *   3. an unambiguous substring match, either direction
+   *   4. a generic kind noun ("the database") when exactly one node has that kind
+   *   5. an unambiguous best-token-overlap match
+   * Falls back to slug(label) — i.e. today's behaviour — when nothing
+   * resolves or a match is ambiguous, so a genuinely novel reference fails
+   * exactly as before rather than guessing wrong.
+   */
+  resolveId(label: string): string {
+    const id = slug(label);
+    if (this.nodes.has(id)) return id;
+
+    const needle = normalize(label);
+    for (const [nodeId, n] of this.nodes) {
+      if (normalize(n.label) === needle) return nodeId;
+    }
+
+    const substringMatches = [...this.nodes.entries()].filter(([, n]) => {
+      const hay = normalize(n.label);
+      return hay.includes(needle) || needle.includes(hay);
+    });
+    if (substringMatches.length === 1) return substringMatches[0]![0];
+
+    const bareWord = needle.replace(/^(the|a|an)\s+/, '').trim();
+    const kind = GENERIC_KIND_WORDS[bareWord];
+    if (kind) {
+      const kindMatches = [...this.nodes.values()].filter((n) => n.kind === kind);
+      if (kindMatches.length === 1) return kindMatches[0]!.id;
+    }
+
+    const needleTokens = new Set(needle.split(/\s+/).filter(Boolean));
+    let bestScore = 0;
+    let bestMatches: string[] = [];
+    for (const [nodeId, n] of this.nodes) {
+      const overlap = normalize(n.label)
+        .split(/\s+/)
+        .filter((t) => needleTokens.has(t)).length;
+      if (overlap === 0) continue;
+      if (overlap > bestScore) {
+        bestScore = overlap;
+        bestMatches = [nodeId];
+      } else if (overlap === bestScore) {
+        bestMatches.push(nodeId);
+      }
+    }
+    if (bestMatches.length === 1) return bestMatches[0]!;
+
+    return id; // no unambiguous match — preserve old (failing) behaviour
   }
 
   /** Group boxes derived from current member positions — never authored. */
