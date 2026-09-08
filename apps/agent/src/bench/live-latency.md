@@ -95,3 +95,9 @@ Two independent real sessions, same procedure, same machine/project, run minutes
 **Recovery latency** — median **~3.7-4.0s**, p95 **~6.2-7.3s**
 
 **Reading the numbers:** fence latency is dominated by how long the user's own interrupting phrase takes to finish being said and transcribed, not raw cancellation speed (`GenerationManager.cancelCurrent()` itself is a synchronous, sub-millisecond call — see `core/generation.test.ts`). Recovery latency — LiveKit Inference LLM round-trip + Rime TTS time-to-first-audio — is the real optimization target and is slower than ideal for a "perceived response time" claim; reported as measured across two independent runs, not tuned away before reporting. See Limitations.
+
+### Audio-stop confirmation — "does queued audio actually stop", not just "was cancellation decided"
+
+Fence latency answers "how fast did we decide to cancel." It does not answer the PS's own full-duplex phrasing — "queued Rime audio stops promptly" — which is about the audio itself, not the decision. `pnpm --filter DD_agent latency` also correlates each `generation_cancelled` with the LiveKit Agents SDK's own `"playout completed with interrupt"` log line (fired once the SDK has cancelled the reply pipeline and drained the audio-forwarding task), from the same two runs above:
+
+**n=7, median 13 ms, p95 25 ms (min 3, max 138)** — n=7 because only turns where the agent was actually mid-speech at cancellation count (most cancellations are ordinary turn-taking with nothing playing to interrupt). Every value under 150ms. This is LiveKit SDK-internal behaviour, not Cartograph code, which is exactly why it's measured rather than assumed. `apps/agent/src/bench/latency.test.ts` covers the pairing logic; the pairing itself anchors the SDK's time-of-day-only log line to "today," so it's correct when parsed the same day it's captured and wrong across a midnight boundary — disclosed, not silently assumed away.

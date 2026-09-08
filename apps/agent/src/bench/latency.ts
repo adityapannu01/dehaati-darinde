@@ -12,6 +12,16 @@
 //
 // fence latency    = generation_cancelled.t - preceding user_speech_start.t
 // recovery latency = next first_audio_frame.t - generation_cancelled.t
+//
+// A fourth, separately-reported number: audio-stop confirmation. The PS's own
+// full-duplex example asks specifically whether "queued Rime audio stops
+// promptly" — which fence latency does NOT measure (that's decision speed,
+// not confirmed silence). The LiveKit Agents SDK logs "playout completed with
+// interrupt" once it has actually cancelled the reply pipeline and drained
+// the audio-forwarding task — a real (if LiveKit-internal, not agent-decided)
+// confirmation that playback stopped. That line uses the SDK's own pino
+// pretty-print time-of-day format ([HH:MM:SS.mmm]), not our epoch `t=`
+// timestamps, so it's parsed and paired separately.
 
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
@@ -24,6 +34,8 @@ interface Event {
 }
 
 const LINE = /\[latency\]\s+(user_speech_start|generation_cancelled|first_audio_frame)(?:\s+gen=(\d+))?\s+t=(\d+)/;
+// Pino's pretty-printed time-of-day prefix, on the SDK's own interruption-confirmation line.
+const PLAYOUT_STOPPED_LINE = /^\[(\d\d):(\d\d):(\d\d)\.(\d\d\d)\].*playout completed with interrupt/;
 
 function parse(text: string): Event[] {
   const events: Event[] = [];
@@ -37,6 +49,46 @@ function parse(text: string): Event[] {
     });
   }
   return events;
+}
+
+/**
+ * Pairs each SDK-confirmed playout stop with the nearest preceding
+ * generation_cancelled, and returns the gap in ms. NOTE: the SDK's line only
+ * carries a time-of-day, not a date, so this anchors it to "today" (when this
+ * script runs) — correct for the normal workflow (parse the log the same day
+ * it's captured), wrong if parsing a log across a midnight boundary. A pairing
+ * more than 2s apart (or a "stop" before its "cancel") is treated as
+ * unrelated and dropped rather than reported as a false precision.
+ */
+export function audioStopDelays(text: string): number[] {
+  type Tagged = { kind: 'cancelled' | 'stopped'; t: number };
+  const events: Tagged[] = [];
+  for (const line of text.split('\n')) {
+    const cancel = line.match(/\[latency\] generation_cancelled t=(\d+)/);
+    if (cancel) {
+      events.push({ kind: 'cancelled', t: Number(cancel[1]) });
+      continue;
+    }
+    const stopped = line.match(PLAYOUT_STOPPED_LINE);
+    if (stopped) {
+      const [, hh, mm, ss, ms] = stopped;
+      const d = new Date();
+      d.setHours(Number(hh), Number(mm), Number(ss), Number(ms));
+      events.push({ kind: 'stopped', t: d.getTime() });
+    }
+  }
+
+  const delays: number[] = [];
+  let lastCancel: number | null = null;
+  for (const e of events) {
+    if (e.kind === 'cancelled') {
+      lastCancel = e.t;
+    } else if (lastCancel !== null) {
+      const delta = e.t - lastCancel;
+      if (delta >= -500 && delta < 2000) delays.push(delta);
+    }
+  }
+  return delays;
 }
 
 interface Interruption {
@@ -114,6 +166,19 @@ function main(): void {
     );
   }
   console.log('\nNote: the first interruption after connect is cold (model/connection warm-up). Label it and exclude it from the warm medians.');
+
+  const audioStop = stats(audioStopDelays(text));
+  if (audioStop) {
+    console.log(
+      `\nAudio-stop confirmation — n=${audioStop.n}  median ${audioStop.median} ms  p95 ${audioStop.p95} ms  (min ${audioStop.min}, max ${audioStop.max})`,
+    );
+    console.log(
+      '(generation_cancelled -> SDK\'s own "playout completed with interrupt" log; answers "does queued audio actually stop", not just "was cancellation decided". Only counts turns where the agent was actually mid-speech when cancelled.)',
+    );
+  }
 }
 
-main();
+// Runnable directly: `pnpm --filter DD_agent latency`.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main();
+}

@@ -54,6 +54,14 @@ Live interruption/recovery latency, measured 2026-09-08 across **two independent
 
 The two runs' medians agree within ~1% — that agreement is the reproducibility check, not a cherry-picked single sample. Full unedited per-interruption tables for both runs are in `live-latency.md`. Fence latency is dominated by how long the user's own interrupting phrase takes to say + transcribe, not raw cancellation (`cancelCurrent()` is synchronous). Recovery latency — LiveKit Inference LLM round-trip + Rime TTS time-to-first-audio — is the real optimization target and is slower than we'd like; reported as measured, not tuned away before reporting.
 
+**"Queued Rime audio stops promptly" — measured directly, not assumed from architecture.** Fence latency measures *decision* speed (interruption detected → generation cancelled); it says nothing about whether audio already playing actually stops. `pnpm --filter DD_agent latency` now also correlates each `generation_cancelled` with the LiveKit Agents SDK's own `"playout completed with interrupt"` confirmation — logged once the SDK has actually cancelled the reply pipeline and drained the audio-forwarding task:
+
+| | n | median | p95 | min | max |
+|---|--:|--:|--:|--:|--:|
+| Audio-stop confirmation (cancelled → SDK confirms playback stopped) | 7 | **13 ms** | 25 ms | 3 ms | 138 ms |
+
+n=7 because this only counts turns where the agent was genuinely mid-speech at the moment of cancellation (most `generation_cancelled` events are ordinary turn-taking, not an audio interruption). Every value is under 150ms — queued audio stops within tens of milliseconds of the fencing decision, not seconds. This is LiveKit SDK-internal behaviour, not something Cartograph implements, which is exactly why it's worth measuring directly rather than assuming from the architecture. `apps/agent/src/bench/latency.test.ts` unit-tests the pairing logic.
+
 **A lever investigated and closed, not left unexplored:** Rime's `reduceLatency` option looked like a direct fix for the recovery leg. Checked the plugin's compiled source (`@livekit/agents-plugin-rime@1.7.1`), not just its types: `reduceLatency` is only forwarded into the actual Rime request when `modelId` is `mistv2` — for `coda` it's silently dropped on both the WebSocket and HTTP paths. Switching to Mist v2 to reach it isn't an option either, since Mist v2 has no word-level timestamps, which the commit gate requires. Left unset in `tts.ts` rather than shipped as a config flag that would silently do nothing.
 
 Rime pronunciation: 44 infrastructure terms rendered through the shipped `coda:celeste` WebSocket path in three variants each (plain / hand-respelled / **the shipped `applyLexicon` output**) — clips + comparison table in `apps/agent/src/bench/pronunciation/REPORT.md`. `RIME_SAVE_OOVS=true` logs Rime's out-of-vocabulary words for a real session.
