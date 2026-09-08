@@ -80,7 +80,11 @@ export class CommitGate {
 
     const staged = this.staging.stage(generation, sentenceIndex, anchorPhrase, mutation);
     this.stagedIds.add(staged.id);
-    this.ledger.push('mutation_staged', generation, staged.id);
+    // The anchor phrase goes into the ledger detail (not just the id) so a
+    // captured session log is self-sufficient for an independent, offline
+    // audit of "was this actually heard before it committed" — see
+    // bench/audit-session.ts, which never imports this file.
+    this.ledger.push('mutation_staged', generation, `${staged.id} anchor="${anchorPhrase}"`);
 
     if (this.baselineMode) {
       // Naive mode: no commit gate. The mutation lands immediately, whether
