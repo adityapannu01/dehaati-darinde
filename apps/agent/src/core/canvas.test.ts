@@ -161,6 +161,45 @@ describe('CanvasStore', () => {
     expect(new CanvasStore().summary()).toBe('(empty)');
   });
 
+  // ROUND3 A1 — direction
+  it('setDirection changes the diagram flow, is undoable, and clear resets it to RIGHT', () => {
+    const store = new CanvasStore();
+    expect(store.snapshot(0).direction).toBe('RIGHT');
+
+    store.apply({ op: 'addNode', node: node('a', 'A') });
+    store.apply({ op: 'setDirection', direction: 'DOWN' });
+    expect(store.snapshot(1).direction).toBe('DOWN');
+
+    store.apply({ op: 'undo' });
+    expect(store.snapshot(2).direction).toBe('RIGHT'); // undo restores it
+
+    store.apply({ op: 'setDirection', direction: 'LEFT' });
+    store.apply({ op: 'clear' });
+    expect(store.snapshot(3).direction).toBe('RIGHT'); // clear resets it
+  });
+
+  it('ROUND3 A4: a scoped setDirection sets one group\'s direction, resolved forgivingly', () => {
+    const store = new CanvasStore();
+    for (const id of ['w1', 'w2']) store.apply({ op: 'addNode', node: node(id, id) });
+    store.apply({ op: 'addGroup', id: 'workers', label: 'Workers', memberIds: ['w1', 'w2'] });
+
+    store.apply({ op: 'setDirection', direction: 'DOWN', scope: 'the workers' });
+    expect(store.snapshot(1).groups[0]?.direction).toBe('DOWN');
+    expect(store.snapshot(1).direction).toBe('RIGHT'); // whole-diagram direction untouched
+  });
+
+  it('ROUND3 A2: a node already in one group is dropped from a second addGroup', () => {
+    const store = new CanvasStore();
+    for (const id of ['a', 'b', 'c']) store.apply({ op: 'addNode', node: node(id, id) });
+    store.apply({ op: 'addGroup', id: 'g1', label: 'G1', memberIds: ['a', 'b'] });
+    store.apply({ op: 'addGroup', id: 'g2', label: 'G2', memberIds: ['b', 'c'] });
+
+    const groups = store.snapshot(1).groups;
+    expect(groups.find((g) => g.id === 'g1')?.memberIds.sort()).toEqual(['a', 'b']);
+    expect(groups.find((g) => g.id === 'g2')?.memberIds).toEqual(['c']); // b already claimed
+    expect(store.groupOfNode('b')).toBe('g1');
+  });
+
   it('§3.2: addGroup boxes its members, tracks them, and drops when emptied', () => {
     const store = new CanvasStore();
     for (const id of ['a', 'b', 'c']) {

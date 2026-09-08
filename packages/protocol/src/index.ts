@@ -25,6 +25,9 @@ export interface CanvasEdge {
   bidirectional?: boolean | undefined;
 }
 
+/** The direction the layered layout flows. Maps 1:1 to ELK's `elk.direction`. */
+export type LayoutDirection = 'RIGHT' | 'DOWN' | 'LEFT' | 'UP';
+
 /**
  * A boundary drawn around a set of nodes — a VPC, a trust boundary, a bounded
  * context (§3.2). Its box is derived from its members' positions by the agent,
@@ -38,6 +41,8 @@ export interface CanvasGroup {
   y: number;
   width: number;
   height: number;
+  /** ROUND3 A4: per-group flow direction; inherits the diagram's when unset. */
+  direction?: LayoutDirection | undefined;
 }
 
 export interface CanvasSnapshot {
@@ -47,6 +52,8 @@ export interface CanvasSnapshot {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
   groups: CanvasGroup[];
+  /** ROUND3 A1: the direction the diagram flows — presentation, never part of the oracle's content diff. */
+  direction: LayoutDirection;
 }
 
 export type MutationOp =
@@ -58,6 +65,8 @@ export type MutationOp =
   | { op: 'removeEdge'; edgeId: string }
   /** Draw a boundary around existing components (§3.2). */
   | { op: 'addGroup'; id: string; label: string; memberIds: string[] }
+  /** ROUND3 A1/A4: change the flow direction of the whole diagram, or of one group (scope). */
+  | { op: 'setDirection'; direction: LayoutDirection; scope?: string | undefined }
   /** Reverse the most recent committed mutation (undo-by-voice). No-op if nothing to undo. */
   | { op: 'undo' }
   /** Wipe every node and edge in a single atomic step (see clearCanvas tool). */
@@ -98,7 +107,9 @@ export type LedgerEventType =
   | 'proposal_expired'
   /** RIME_MULTILINGUAL=true only — see apps/agent/src/core/language-router.ts. */
   | 'language_switched'
-  | 'language_unsupported';
+  | 'language_unsupported'
+  /** ROUND3 A1 — the diagram's flow direction changed (narrated, gated, undoable). */
+  | 'direction_changed';
 
 export interface LedgerEvent {
   seq: number;

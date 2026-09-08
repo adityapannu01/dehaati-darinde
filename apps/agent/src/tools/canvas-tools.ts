@@ -265,6 +265,39 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
     },
   });
 
+  const arrangeLayout = tool({
+    name: 'arrangeLayout',
+    description:
+      'Change the direction the diagram flows: left-to-right, top-to-bottom, right-to-left, or bottom-to-top. Use when the user asks to restructure, rearrange, flip, reorient, or change how the diagram is laid out. Optionally scope it to one boundary. Does not add, remove, or change any component.',
+    parameters: z.object({
+      direction: z
+        .enum(['RIGHT', 'DOWN', 'LEFT', 'UP'])
+        .describe(
+          'RIGHT = left-to-right, DOWN = top-to-bottom, LEFT = right-to-left, UP = bottom-to-top.',
+        ),
+      scope: z
+        .string()
+        .optional()
+        .describe('A boundary name to reorient only that group. Omit to reorient the whole diagram.'),
+      sentenceIndex: sentenceIndexParam,
+    }),
+    execute: async ({ direction, scope, sentenceIndex }) => {
+      const gen = deps.gm.currentId;
+      if (!deps.gm.isCurrent(gen)) {
+        deps.ledger.push('tool_stale_discarded', gen, 'arrangeLayout');
+        return 'STALE_DISCARDED: this instruction was superseded. Do not mention this result.';
+      }
+      const anchor = scope ?? 'layout';
+      deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), anchor, {
+        op: 'setDirection',
+        direction: direction as 'RIGHT' | 'DOWN' | 'LEFT' | 'UP',
+        ...(scope ? { scope } : {}),
+      });
+      deps.ledger.push('tool_completed', gen, `arrangeLayout(${direction}${scope ? ` @${scope}` : ''})`);
+      return `Staged: the diagram will flow ${direction.toLowerCase()}${scope ? ` inside ${scope}` : ''} once you have said so.`;
+    },
+  });
+
   const undoLast = tool({
     name: 'undoLast',
     description:
@@ -357,6 +390,7 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
     renameComponent,
     removeComponent,
     groupComponents,
+    arrangeLayout,
     undoLast,
     clearCanvas,
     explainComponent,

@@ -19,6 +19,7 @@ export const MutationPlan = z.object({
         'renameComponent',
         'removeComponent',
         'groupComponents',
+        'arrangeLayout',
         'undoLast',
         'clearCanvas',
       ]),

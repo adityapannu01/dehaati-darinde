@@ -12,6 +12,7 @@ Available tools and their exact argument names:
 - renameComponent: { targetLabel: string, newLabel: string }
 - removeComponent: { targetLabel: string }
 - groupComponents: { label: string, memberLabels: string } — a boundary (VPC, trust boundary, domain) around 2+ existing components; memberLabels is a comma-separated list like "orders service, payments service"
+- arrangeLayout: { direction: "RIGHT"|"DOWN"|"LEFT"|"UP", scope?: string } — change the diagram's flow direction ("make it top to bottom" -> DOWN). scope is a boundary name to reorient only that group. Moves things only; never adds/removes.
 - undoLast: {} — reverse the single most recent committed change ("undo that", "take that back")
 - clearCanvas: {} — wipes the whole diagram in one step ("clear the board", "start over", "wipe it")
 
@@ -32,7 +33,7 @@ Current diagram:
 const PROGRESSIVE_JSON_HINT = `
 
 Respond with ONLY JSON matching this shape, no prose, no markdown fences:
-{"mutations":[{"tool":"addService"|"connectServices"|"replaceComponent"|"renameComponent"|"removeComponent"|"groupComponents"|"undoLast"|"clearCanvas","args":{},"anchorPhrase":"","sentence":""}]}`;
+{"mutations":[{"tool":"addService"|"connectServices"|"replaceComponent"|"renameComponent"|"removeComponent"|"groupComponents"|"arrangeLayout"|"undoLast"|"clearCanvas","args":{},"anchorPhrase":"","sentence":""}]}`;
 
 export const EMPTY_PLAN: MutationPlanT = { mutations: [] };
 export const RETRY_REPLY = 'Sorry, could you say that again?';

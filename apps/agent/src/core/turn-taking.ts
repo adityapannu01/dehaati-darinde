@@ -19,8 +19,16 @@
  * Single-word utterances that are always a real interruption even though they
  * fall under `minWords`. "no", "wait", "stop" mid-narration is a correction,
  * not a backchannel — never swallow them.
+ *
+ * ROUND3 B3: this also carries the single-word COMMAND vocabulary — "undo",
+ * "clear", "vertical", "left". Without it those do nothing until the user adds
+ * words (a real UX regression from the round-1 minWords floor). Kept in sync
+ * with the tool surface by `turn-taking.test.ts`, which asserts every
+ * `arrangeLayout` direction and every zero-arg-tool verb is present. Do NOT
+ * fix B3 by lowering minWords — the grunt filter was expensive to get right.
  */
 const HARD_INTERRUPT_WORDS = new Set([
+  // conversational corrections
   'no',
   'nope',
   'stop',
@@ -30,12 +38,34 @@ const HARD_INTERRUPT_WORDS = new Set([
   'actually',
   'hold',
   'hang',
+  // tool verbs — undoLast / clearCanvas / (re-run)
   'undo',
   'redo',
+  'again',
+  'clear',
+  'reset',
+  'wipe',
   'remove',
   'delete',
   'change',
+  // arrangeLayout directions + the natural synonyms
+  'left',
+  'up',
+  'down',
+  'vertical',
+  'horizontal',
+  'restructure',
+  'rearrange',
+  'reorient',
+  'flip',
 ]);
+
+/**
+ * Command words that are ALSO plausible backchannels ("right" = "correct" or
+ * "go right"). Resolved by context in `isBackchannel`: a command only when the
+ * agent is not mid-sentence, so it can't be an acknowledgement of ongoing speech.
+ */
+const AMBIGUOUS_COMMAND_WORDS = new Set(['right']);
 
 /**
  * Acknowledgement tokens. A short transcript made up entirely of these is a
@@ -91,7 +121,26 @@ export interface BackchannelOptions {
    * agree. Default 2.
    */
   minWords?: number;
+  /**
+   * Whether the agent is currently speaking. Disambiguates AMBIGUOUS_COMMAND_WORDS
+   * ("right"): a bare "right" while the agent talks is an acknowledgement; while
+   * it is silent (e.g. just finished, or asked a question) it is "go right".
+   */
+  agentSpeaking?: boolean;
 }
+
+/** The single-word command vocabulary — for a test to check nothing drifted from the tools. */
+export const SINGLE_WORD_COMMANDS: readonly string[] = [
+  ...HARD_INTERRUPT_WORDS,
+  ...AMBIGUOUS_COMMAND_WORDS,
+];
+
+// ROUND3 B2: the instant acknowledgement spoken the moment a real interruption
+// fences, while the LLM plans the reply. It carries no mutation, so it stages
+// nothing. It MUST NOT end in a sentence terminator — DeliveryTracker would
+// count it as sentence 0 and commit the reply's first mutation before its
+// describing sentence is spoken. Enforced by turn-taking.test.ts.
+export const ACK_TOKENS = ['Okay,', 'Right,', 'Sure,', 'Mm, okay,', 'Got it,'] as const;
 
 /** Tokenise for classification: lowercase, letters only, split on non-letters. */
 function words(transcript: string): string[] {
@@ -112,6 +161,9 @@ export function isBackchannel(transcript: string, opts: BackchannelOptions = {})
 
   if (w.length === 0) return true; // empty final transcript — nothing was said
   if (w.some((token) => HARD_INTERRUPT_WORDS.has(token))) return false;
+  // B3: a bare ambiguous command ("right") is a command only when the agent
+  // isn't mid-sentence — otherwise it's an acknowledgement of ongoing speech.
+  if (w.length === 1 && AMBIGUOUS_COMMAND_WORDS.has(w[0]!)) return opts.agentSpeaking ?? true;
   if (w.length < minWords) return true; // "mm", "yeah", "okay"
   if (w.length <= 3 && w.every((token) => BACKCHANNEL_WORDS.has(token))) return true;
 

@@ -10,6 +10,7 @@ import {
   type CanvasNode,
   type FormingElement,
   type GhostElement,
+  type LayoutDirection,
   type LedgerEvent,
   type ServerMessage,
 } from '@repo/protocol';
@@ -45,6 +46,8 @@ export interface UseCartographReturn {
   edges: CanvasEdge[];
   /** §3.2: boundaries drawn around sets of nodes. */
   groups: CanvasGroup[];
+  /** ROUND3 A1: the diagram's flow direction. */
+  direction: LayoutDirection;
   events: LedgerEvent[];
   status: CartographStatus | undefined;
   /** Elements the agent has staged for the current turn but not yet committed. */
@@ -66,6 +69,7 @@ export function useCartograph(): UseCartographReturn {
   const [nodes, setNodes] = useState<CanvasNode[]>([]);
   const [edges, setEdges] = useState<CanvasEdge[]>([]);
   const [groups, setGroups] = useState<CanvasGroup[]>([]);
+  const [direction, setDirection] = useState<LayoutDirection>('RIGHT');
   const [events, setEvents] = useState<LedgerEvent[]>([]);
   const [status, setStatus] = useState<CartographStatus | undefined>(undefined);
   const [forming, setForming] = useState<FormingState[]>([]);
@@ -104,6 +108,7 @@ export function useCartograph(): UseCartographReturn {
           if (msg.snapshot.version <= lastVersion.current) return;
           lastVersion.current = msg.snapshot.version;
           setNodes(msg.snapshot.nodes);
+          setDirection(msg.snapshot.direction ?? 'RIGHT');
           setEdges(msg.snapshot.edges);
           setGroups(msg.snapshot.groups ?? []);
           break;
@@ -178,6 +183,7 @@ export function useCartograph(): UseCartographReturn {
     nodes,
     edges,
     groups,
+    direction,
     events,
     status,
     forming,

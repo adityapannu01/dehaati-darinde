@@ -44,6 +44,7 @@ function setup(slowMs = 20) {
     describeArchitecture: pick('describeArchitecture'),
     undoLast: pick('undoLast'),
     groupComponents: pick('groupComponents'),
+    arrangeLayout: pick('arrangeLayout'),
     exportDiagram: pickP('exportDiagram'),
   };
 }
@@ -239,6 +240,39 @@ describe('clearCanvas (B6)', () => {
 
     // Staged only — the board still has its node until CommitGate commits.
     expect(canvas.nodeCount).toBe(1);
+  });
+});
+
+describe('arrangeLayout (ROUND3 A1)', () => {
+  it('stages a setDirection mutation, whole-diagram or scoped, and touches no component', async () => {
+    const { gm, staging, canvas, arrangeLayout } = setup(1);
+    const g1 = gm.start('restructure this top to bottom');
+    canvas.apply({ op: 'addNode', node: { id: 'a', label: 'A', kind: 'service', x: 0, y: 0 } });
+    const sig = new AbortController().signal;
+
+    const r = await callExecute(arrangeLayout, { direction: 'DOWN' }, { abortSignal: sig });
+    expect(r).toContain('Staged');
+    expect(staging.pendingFor(g1.id)[0]?.mutation).toEqual({ op: 'setDirection', direction: 'DOWN' });
+
+    await callExecute(arrangeLayout, { direction: 'UP', scope: 'Workers' }, { abortSignal: sig });
+    expect(staging.pendingFor(g1.id)[1]?.mutation).toEqual({
+      op: 'setDirection',
+      direction: 'UP',
+      scope: 'Workers',
+    });
+
+    // No node/edge mutation was staged.
+    expect(staging.pendingFor(g1.id).every((s) => s.mutation.op === 'setDirection')).toBe(true);
+    expect(canvas.nodeCount).toBe(1);
+  });
+
+  it('stages against the commit gate — direction does not change until the sentence is heard', async () => {
+    const { gm, canvas, arrangeLayout } = setup(1);
+    canvas.apply({ op: 'addNode', node: { id: 'a', label: 'A', kind: 'service', x: 0, y: 0 } });
+    gm.start('make it vertical');
+    await callExecute(arrangeLayout, { direction: 'DOWN' }, { abortSignal: new AbortController().signal });
+    // Staged only — the store's direction is still the default.
+    expect(canvas.currentDirection).toBe('RIGHT');
   });
 });
 

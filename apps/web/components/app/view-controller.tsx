@@ -40,7 +40,7 @@ interface ViewControllerProps {
 
 export function ViewController({ appConfig }: ViewControllerProps) {
   const { isConnected, start } = useSessionContext();
-  const { nodes, edges, groups, events, status, forming, ghosts, mermaid, clearMermaid } =
+  const { nodes, edges, groups, direction, events, status, forming, ghosts, mermaid, clearMermaid } =
     useCartograph();
   const lastToastedSeq = useRef(0);
 
@@ -84,6 +84,7 @@ export function ViewController({ appConfig }: ViewControllerProps) {
             nodes={nodes}
             edges={edges}
             groups={groups}
+            direction={direction}
             forming={forming}
             ghosts={ghosts}
             className="absolute inset-0"

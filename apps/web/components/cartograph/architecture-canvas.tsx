@@ -2,7 +2,14 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import type { CanvasEdge, CanvasGroup, CanvasNode, GhostElement, NodeKind } from '@repo/protocol';
+import type {
+  CanvasEdge,
+  CanvasGroup,
+  CanvasNode,
+  GhostElement,
+  LayoutDirection,
+  NodeKind,
+} from '@repo/protocol';
 import type { FormingState } from '@/hooks/use-cartograph';
 import {
   Background,
@@ -36,6 +43,26 @@ const KIND_COLORS: Record<NodeKind, string> = {
   queue: 'var(--kind-queue)',
   gateway: 'var(--kind-gateway)',
   external: 'var(--kind-external)',
+};
+
+// ROUND3 A5: kind in a SECOND channel — silhouette, not just hue — so a dense
+// diagram is scannable. Pure CSS: border-radius + clip-path, no dependency.
+const KIND_SHAPE: Record<NodeKind, { borderRadius: string; clipPath?: string; dashed?: boolean }> = {
+  service: { borderRadius: '8px' },
+  // barrel / cylinder hint — tall side radii read as a database
+  datastore: { borderRadius: '4px / 14px' },
+  // notched leading edge — a message queue
+  queue: {
+    borderRadius: '3px',
+    clipPath: 'polygon(0 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 0 100%)',
+  },
+  // chamfered hexagon — a gateway / boundary crossing
+  gateway: {
+    borderRadius: '2px',
+    clipPath: 'polygon(10px 0, calc(100% - 10px) 0, 100% 50%, calc(100% - 10px) 100%, 10px 100%, 0 50%)',
+  },
+  // dashed + softer — something outside the system
+  external: { borderRadius: '8px', dashed: true },
 };
 
 const HIGHLIGHT_MS = 1200;
@@ -116,6 +143,10 @@ function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
     : data.ghost || (data.forming && !data.named)
       ? 'var(--muted-foreground)'
       : color;
+  const shape = KIND_SHAPE[data.kind];
+  // clip-path eats the border, so a clipped kind gets its colour from a tinted
+  // fill + a same-colour inset shadow instead of a stroke.
+  const clipped = !sketch && !!shape.clipPath;
 
   return (
     <motion.div
@@ -130,18 +161,28 @@ function CartographNodeView({ data }: NodeProps<Node<CartographNodeData>>) {
       title={data.ghost && data.proposedBy ? `proposed by ${data.proposedBy}` : undefined}
       style={{
         position: 'relative',
-        borderColor: sketch ? 'transparent' : strokeColor,
+        clipPath: clipped ? shape.clipPath : undefined,
+        borderColor: sketch || clipped ? 'transparent' : strokeColor,
         borderWidth: 2,
-        borderStyle: !sketch && (data.forming || data.ghost) ? 'dashed' : 'solid',
-        borderRadius: 8,
-        padding: '6px 10px',
+        borderStyle:
+          !sketch && !clipped && (data.forming || data.ghost || shape.dashed) ? 'dashed' : 'solid',
+        borderRadius: shape.borderRadius,
+        padding: clipped ? '6px 16px' : '6px 10px',
         fontSize: 13,
-        background: 'var(--card)',
+        background: clipped
+          ? `color-mix(in oklch, ${strokeColor} 22%, var(--card))`
+          : shape.dashed
+            ? `color-mix(in oklch, ${strokeColor} 6%, var(--card))`
+            : 'var(--card)',
         color: 'var(--card-foreground)',
-        boxShadow:
+        boxShadow: [
+          clipped ? `inset 0 0 0 2px color-mix(in oklch, ${strokeColor} 55%, transparent)` : '',
           data.justArrived && !data.removing
             ? `0 0 0 4px color-mix(in oklch, ${color} 40%, transparent)`
-            : undefined,
+            : '',
+        ]
+          .filter(Boolean)
+          .join(', ') || undefined,
         transition: 'box-shadow 0.6s ease-out, border-color 0.4s ease-out',
       }}
     >
@@ -336,11 +377,22 @@ function CartographEdgeView({
 
 const edgeTypes = { cartographEdge: CartographEdgeView };
 
+// ROUND3 A3: which side of a node its edges attach to, per flow direction.
+// Reuses the four <Handle>s CartographNodeView already renders.
+const HANDLES: Record<LayoutDirection, { source: Position; target: Position }> = {
+  RIGHT: { source: Position.Right, target: Position.Left },
+  LEFT: { source: Position.Left, target: Position.Right },
+  DOWN: { source: Position.Bottom, target: Position.Top },
+  UP: { source: Position.Top, target: Position.Bottom },
+};
+
 interface ArchitectureCanvasProps {
   nodes: CanvasNode[];
   edges: CanvasEdge[];
   /** §3.2: boundaries drawn around sets of nodes. */
   groups?: CanvasGroup[];
+  /** ROUND3 A1: the diagram's flow direction. */
+  direction?: LayoutDirection;
   /** §3.3: staged-but-uncommitted elements, drawn "forming". */
   forming?: FormingState[];
   /** §2.4: ambient proposals overheard from the room, drawn "ghost". */
@@ -370,10 +422,12 @@ function ArchitectureCanvasInner({
   nodes,
   edges,
   groups = [],
+  direction = 'RIGHT',
   forming = [],
   ghosts = [],
   className,
 }: ArchitectureCanvasProps) {
+  const handles = HANDLES[direction];
   // Ids currently on screen (present or mid-exit) — NOT permanently-growing,
   // so a node removed and later re-added under the same id flashes again.
   const seenIds = useRef(new Set<string>());
@@ -449,8 +503,8 @@ function ArchitectureCanvasInner({
       id: n.id,
       type: 'cartographNode',
       position: { x: n.x, y: n.y },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
+      sourcePosition: handles.source,
+      targetPosition: handles.target,
       data: {
         label: n.label,
         kind: n.kind,
@@ -465,8 +519,8 @@ function ArchitectureCanvasInner({
       id: n.id,
       type: 'cartographNode',
       position: { x: n.x, y: n.y },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
+      sourcePosition: handles.source,
+      targetPosition: handles.target,
       data: {
         label: n.label,
         kind: n.kind,
@@ -484,8 +538,8 @@ function ArchitectureCanvasInner({
       id: f.id,
       type: 'cartographNode',
       position: { x: i * 190, y: -140 },
-      sourcePosition: Position.Right,
-      targetPosition: Position.Left,
+      sourcePosition: handles.source,
+      targetPosition: handles.target,
       data: {
         label: f.label,
         kind: f.kind ?? 'service',
@@ -505,8 +559,8 @@ function ArchitectureCanvasInner({
         id: g.id,
         type: 'cartographNode',
         position: { x: i * 190, y: 220 + Math.max(0, ...nodes.map((n) => n.y)) },
-        sourcePosition: Position.Right,
-        targetPosition: Position.Left,
+        sourcePosition: handles.source,
+        targetPosition: handles.target,
         data: {
           label: g.label,
           kind: g.kind ?? 'service',
@@ -553,8 +607,8 @@ function ArchitectureCanvasInner({
   const { fitView } = useReactFlow();
   const prefersReducedMotion = useReducedMotion();
   const boundsKey = useMemo(
-    () => nodes.map((n) => `${n.id}:${n.x},${n.y}`).join('|') + `#${edges.length}`,
-    [nodes, edges.length]
+    () => nodes.map((n) => `${n.id}:${n.x},${n.y}`).join('|') + `#${edges.length}#${direction}`,
+    [nodes, edges.length, direction]
   );
   useEffect(() => {
     if (nodes.length === 0) return;

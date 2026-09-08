@@ -179,4 +179,44 @@ function backchannelScenario(toolDelayMs: number): Scenario {
 
 export const BACKCHANNEL_SCENARIOS: Scenario[] = TOOL_DELAYS_MS.map(backchannelScenario);
 
-export const SCENARIOS: Scenario[] = [...generateMatrix(), ...BACKCHANNEL_SCENARIOS];
+/**
+ * ROUND3 Module C: a `setDirection` mutation is a narrated, gated change like
+ * any other. Staged then interrupted before its sentence is heard -> it must
+ * not apply. `setDirection` adds no nodes/edges, so content divergence stays
+ * 0.0% either way — which also proves direction is correctly OUTSIDE the
+ * oracle's content comparison (bench/oracle.ts).
+ *
+ * Turn 1: add a node + change direction; only the node's sentence is heard,
+ * then interrupted. Turn 2 (uninterrupted) adds another node.
+ */
+function directionScenario(toolDelayMs: number): Scenario {
+  return {
+    id: `delay${toolDelayMs}_direction_change_interrupted`,
+    toolDelayMs,
+    interruptAt: 'during_speech_s2',
+    corrections: 1,
+    turns: [
+      {
+        mutations: [
+          { anchorPhrase: 'first', mutation: addNode('first-svc', 'first') },
+          { anchorPhrase: 'top to bottom', mutation: { op: 'setDirection', direction: 'DOWN' } },
+        ],
+        deliveredSentences: 1, // node heard; the "top to bottom" sentence is cut off
+        interrupted: true,
+      },
+      {
+        mutations: [{ anchorPhrase: 'second', mutation: addNode('second-svc', 'second') }],
+        deliveredSentences: 1,
+        interrupted: false,
+      },
+    ],
+  };
+}
+
+export const DIRECTION_SCENARIOS: Scenario[] = TOOL_DELAYS_MS.map(directionScenario);
+
+export const SCENARIOS: Scenario[] = [
+  ...generateMatrix(),
+  ...BACKCHANNEL_SCENARIOS,
+  ...DIRECTION_SCENARIOS,
+];

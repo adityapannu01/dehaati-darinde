@@ -26,6 +26,11 @@ export function deriveExpectedCanvas(scenario: Scenario): CanvasSnapshot {
 }
 
 export function diff(expected: CanvasSnapshot, actual: CanvasSnapshot): CanvasDiff {
+  // ROUND3 A1: the diff is over CONTENT — which nodes and edges exist. Flow
+  // direction (`snapshot.direction`) and group boxes are PRESENTATION and are
+  // deliberately not compared. Adding direction here would make the divergence
+  // metric mean two things at once. A `setDirection` mutation still goes
+  // through the commit gate — it just doesn't enter this content comparison.
   const expectedNodeIds = new Set(expected.nodes.map((n) => n.id));
   const actualNodeIds = new Set(actual.nodes.map((n) => n.id));
   const expectedEdgeIds = new Set(expected.edges.map((e) => e.id));

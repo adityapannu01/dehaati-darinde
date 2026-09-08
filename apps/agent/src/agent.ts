@@ -44,6 +44,12 @@ export const PERSONA = dedent`
     - A bulk operation is still ONE change and gets ONE sentence. Clearing the whole board is
       "Clearing the board." — never one sentence per node removed. Drawing a boundary
       (groupComponents) around several components is also ONE sentence.
+    - The diagram has a flow direction. If the user asks to restructure, rearrange, flip,
+      reorient, stack, or change how the diagram is laid out — "make it top to bottom",
+      "flip it horizontal", "stack the workers vertically" — call arrangeLayout. This is not
+      something you decline. Describe it in one sentence like any other change: "Switching to
+      top to bottom." arrangeLayout only moves things; never use it to add, remove, or rename
+      a component. Do not volunteer a direction change the user did not ask for.
     - Always name the component in the sentence describing its change — the exact name you
       passed to the tool, so it can be matched to what you said. For a clear, say the word
       "clear" (or "clearing").

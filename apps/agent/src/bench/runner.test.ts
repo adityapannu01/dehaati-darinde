@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { runAll, runOutOfOrderScenario, runScenarioFixed, runScenarioLegacy } from './runner.ts';
-import { BACKCHANNEL_SCENARIOS, SCENARIOS } from './scenarios.ts';
+import { BACKCHANNEL_SCENARIOS, DIRECTION_SCENARIOS, SCENARIOS } from './scenarios.ts';
 
 describe('benchmark runner — the actual headline claim, checked automatically', () => {
   it('cartograph mode has zero canvas divergence across every generated scenario', () => {
@@ -46,6 +46,19 @@ describe('scenario 46 — backchannel during narration (TECHNICAL_REVIEW.md B1)'
     // lands because the spurious roll left onTurnComplete pointed at the wrong
     // generation.
     expect(buggy.some((r) => r.orphanCount > 0 || r.snapshot.edges.length === 0)).toBe(true);
+  });
+});
+
+describe('ROUND3 Module C — interrupted direction change', () => {
+  it('a setDirection cut off mid-sentence does not apply, and content divergence stays 0', () => {
+    for (const scenario of DIRECTION_SCENARIOS) {
+      const { snapshot } = runScenarioFixed(scenario);
+      // Both nodes land; the direction change (turn 1, un-heard) does not.
+      expect(snapshot.nodes.map((n) => n.id).sort(), scenario.id).toEqual(['first-svc', 'second-svc']);
+      expect(snapshot.direction, scenario.id).toBe('RIGHT');
+    }
+    // And the oracle agrees — divergence is 0 across the whole suite.
+    expect(runAll(SCENARIOS).filter((r) => !r.baselineMode).every((r) => !r.divergent)).toBe(true);
   });
 });
 

@@ -18,7 +18,7 @@ import { EventLedger } from './core/ledger.ts';
 import { layoutCanvas } from './core/layout.ts';
 import { ProposalStore } from './core/proposals.ts';
 import { StagingBuffer } from './core/staging.ts';
-import { isBackchannel } from './core/turn-taking.ts';
+import { ACK_TOKENS, isBackchannel } from './core/turn-taking.ts';
 import { LANG_NAME, TESTED_LANGUAGES, toCodaLang } from './voices.ts';
 import { CanvasPublisher } from './transport/publisher.ts';
 import { createTTS } from './tts.ts';
@@ -33,6 +33,7 @@ const INTERRUPTION_MIN_WORDS = 2;
 // Minimum speech length (ms) to register as an interruption — filters coughs,
 // chair scrapes, door slams. LiveKit's own default is 500; kept explicit here.
 const INTERRUPTION_MIN_DURATION_MS = 500;
+
 
 // Load environment variables from a local file.
 // Make sure to set LIVEKIT_URL, LIVEKIT_API_KEY, and LIVEKIT_API_SECRET
@@ -91,6 +92,10 @@ export default defineAgent({
     // src/core/**. Baseline mode disables fencing for the naive-agent
     // comparison the benchmark reports.
     const baselineMode = env('CARTOGRAPH_BASELINE', 'false').toLowerCase() === 'true';
+    // ROUND3 B2: on by default — it's a free perceived-latency win. Off for the
+    // latency A/B and for anyone who finds it chatty.
+    const ackEnabled = env('ACK_ON_INTERRUPT', 'true').toLowerCase() === 'true';
+    let ackIndex = 0;
     const gm = new GenerationManager({ baselineMode });
     const staging = new StagingBuffer();
     const ledger = new EventLedger();
@@ -138,14 +143,21 @@ export default defineAgent({
     const EVENT_FLUSH_MS = 50;
 
     // B4: layered layout, recomputed after every committed mutation.
-    const layoutDirection = env('LAYOUT_DIRECTION', 'RIGHT') === 'DOWN' ? 'DOWN' : 'RIGHT';
+    // ROUND3 A1: LAYOUT_DIRECTION is only the INITIAL value now — arrangeLayout
+    // changes it per session, and relayout() reads it from the snapshot.
+    const initialLayoutDirection: 'RIGHT' | 'DOWN' | 'LEFT' | 'UP' =
+      (['RIGHT', 'DOWN', 'LEFT', 'UP'] as const).find((d) => d === env('LAYOUT_DIRECTION', 'RIGHT')) ??
+      'RIGHT';
+    if (initialLayoutDirection !== 'RIGHT') canvas.setInitialDirection(initialLayoutDirection);
     let layoutSeq = 0;
     async function relayout(): Promise<void> {
       const mySeq = ++layoutSeq;
       const snap = canvas.snapshot(gm.currentId);
       let placements;
       try {
-        placements = await layoutCanvas(snap.nodes, snap.edges, layoutDirection);
+        // A2: groups go to ELK so members cluster inside their box; A1: direction
+        // from the store, not a boot constant.
+        placements = await layoutCanvas(snap.nodes, snap.edges, snap.groups, snap.direction);
       } catch (err) {
         logger.warn(`[layout] ELK failed, keeping current positions: ${String(err)}`);
         return;
@@ -407,7 +419,7 @@ export default defineAgent({
       // event. Route it through the hysteresis'd LanguageRouter and, on a
       // confirmed switch, swap the Rime speaker/lang BEFORE this turn's reply
       // is synthesised (ttsNode reads the plugin opts at stream-open).
-      if (multilingualEnabled && !isBackchannel(ev.transcript, { minWords: INTERRUPTION_MIN_WORDS })) {
+      if (multilingualEnabled && !isBackchannel(ev.transcript, { minWords: INTERRUPTION_MIN_WORDS, agentSpeaking: speaking })) {
         const sw = languageRouter.observe(ev.language);
         if (sw) {
           applyLanguage(sw.lang, sw.speaker);
@@ -443,7 +455,7 @@ export default defineAgent({
       // silently orphans the mutation whose sentence is still being spoken.
       // The word-count floor matches turnHandling.interruption.minWords so the
       // two layers agree — see core/turn-taking.ts.
-      if (isBackchannel(ev.transcript, { minWords: INTERRUPTION_MIN_WORDS })) {
+      if (isBackchannel(ev.transcript, { minWords: INTERRUPTION_MIN_WORDS, agentSpeaking: speaking })) {
         ledger.push('speech_started', gm.currentId, `backchannel ignored: "${ev.transcript}"`);
         return;
       }
@@ -470,6 +482,18 @@ export default defineAgent({
       const g = gm.start(ev.transcript);
       commitGate.startGeneration();
       ledger.push('generation_started', g.id, ev.transcript);
+
+      // ROUND3 B2: an instant acknowledgement while the LLM plans — the biggest
+      // *perceived* latency win, at zero real latency. It carries NO mutation,
+      // stages nothing, and (critically) ends WITHOUT sentence punctuation so
+      // DeliveryTracker never counts it as sentence 0 — which would commit the
+      // reply's first mutation before its describing sentence. addToChatCtx:
+      // false keeps it out of the conversation history. One token, never two.
+      if (ackEnabled) {
+        const ack = ACK_TOKENS[ackIndex++ % ACK_TOKENS.length]!;
+        void session.say(ack, { addToChatCtx: false, allowInterruptions: true });
+        ledger.push('speech_started', g.id, `ack "${ack}"`);
+      }
     });
 
     session.on(voice.AgentSessionEventTypes.ConversationItemAdded, (ev) => {

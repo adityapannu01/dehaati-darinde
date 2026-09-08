@@ -3,6 +3,7 @@ import type {
   CanvasGroup,
   CanvasNode,
   CanvasSnapshot,
+  LayoutDirection,
   MutationOp,
   NodeKind,
 } from '@repo/protocol';
@@ -46,10 +47,15 @@ const GENERIC_KIND_WORDS: Record<string, NodeKind> = {
   broker: 'queue',
 };
 
+type StoredGroup = Omit<CanvasGroup, 'x' | 'y' | 'width' | 'height'>;
+
 export class CanvasStore {
   private nodes = new Map<string, CanvasNode>();
   private edges = new Map<string, CanvasEdge>();
-  private groups = new Map<string, Omit<CanvasGroup, 'x' | 'y' | 'width' | 'height'>>();
+  private groups = new Map<string, StoredGroup>();
+  // ROUND3 A1: the diagram's flow direction. A narrated, history-worthy change
+  // (unlike applyLayout's repositioning, which nobody asked for).
+  private direction: LayoutDirection = 'RIGHT';
   private version = 0;
   // B5: placement index must only ever increment. Deriving it from nodes.size
   // meant that removing a node then adding one reused an occupied grid slot and
@@ -61,7 +67,8 @@ export class CanvasStore {
   private history: {
     nodes: [string, CanvasNode][];
     edges: [string, CanvasEdge][];
-    groups: [string, Omit<CanvasGroup, 'x' | 'y' | 'width' | 'height'>][];
+    groups: [string, StoredGroup][];
+    direction: LayoutDirection;
     placements: number;
   }[] = [];
   private static readonly HISTORY_LIMIT = 30;
@@ -71,6 +78,7 @@ export class CanvasStore {
       nodes: [...this.nodes].map(([k, v]) => [k, { ...v }]),
       edges: [...this.edges].map(([k, v]) => [k, { ...v }]),
       groups: [...this.groups].map(([k, v]) => [k, { ...v, memberIds: [...v.memberIds] }]),
+      direction: this.direction,
       placements: this.placements,
     });
     if (this.history.length > CanvasStore.HISTORY_LIMIT) this.history.shift();
@@ -120,8 +128,25 @@ export class CanvasStore {
         this.edges.delete(m.edgeId);
         break;
       case 'addGroup': {
-        const memberIds = m.memberIds.filter((id) => this.nodes.has(id));
+        // A2 edge case: ELK's tree can't put a node in two containers. First
+        // group wins — members already claimed by another group are dropped
+        // from this one (the tool result says so).
+        const alreadyGrouped = new Set(
+          [...this.groups.values()].flatMap((g) => g.memberIds),
+        );
+        const memberIds = m.memberIds.filter(
+          (id) => this.nodes.has(id) && !alreadyGrouped.has(id),
+        );
         if (memberIds.length > 0) this.groups.set(m.id, { id: m.id, label: m.label, memberIds });
+        break;
+      }
+      case 'setDirection': {
+        if (m.scope) {
+          const g = this.groups.get(this.resolveGroupId(m.scope));
+          if (g) g.direction = m.direction;
+        } else {
+          this.direction = m.direction;
+        }
         break;
       }
       case 'undo': {
@@ -130,6 +155,7 @@ export class CanvasStore {
         this.nodes = new Map(prev.nodes);
         this.edges = new Map(prev.edges);
         this.groups = new Map(prev.groups);
+        this.direction = prev.direction;
         this.placements = prev.placements;
         break;
       }
@@ -137,10 +163,39 @@ export class CanvasStore {
         this.nodes.clear();
         this.edges.clear();
         this.groups.clear();
+        this.direction = 'RIGHT';
         this.placements = 0;
         break;
     }
     this.version += 1;
+  }
+
+  get currentDirection(): LayoutDirection {
+    return this.direction;
+  }
+
+  /** Set the starting direction (from LAYOUT_DIRECTION) without a history entry — nobody narrated it. */
+  setInitialDirection(direction: LayoutDirection): void {
+    this.direction = direction;
+  }
+
+  /** The group a node belongs to, or undefined. */
+  groupOfNode(nodeId: string): string | undefined {
+    for (const [gid, g] of this.groups) if (g.memberIds.includes(nodeId)) return gid;
+    return undefined;
+  }
+
+  /** Forgiving group-label → id resolution, same spirit as resolveId for nodes (A4 scope). */
+  resolveGroupId(label: string): string {
+    const needle = normalize(label);
+    for (const [gid, g] of this.groups) {
+      if (normalize(g.label) === needle || gid === label) return gid;
+    }
+    const partial = [...this.groups.entries()].filter(([, g]) => {
+      const hay = normalize(g.label);
+      return hay.includes(needle) || needle.includes(hay);
+    });
+    return partial.length === 1 ? partial[0]![0] : slug(label);
   }
 
   /** True when there is at least one committed mutation that `undo` could reverse. */
@@ -255,6 +310,7 @@ export class CanvasStore {
       nodes: Array.from(this.nodes.values(), (n) => ({ ...n })),
       edges: Array.from(this.edges.values(), (e) => ({ ...e })),
       groups: this.groupBoxes(),
+      direction: this.direction,
     };
   }
 
