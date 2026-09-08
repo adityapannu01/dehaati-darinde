@@ -7,6 +7,7 @@ import type {
   MutationOp,
   NodeKind,
 } from '@repo/protocol';
+import { NODE_HEIGHT, NODE_WIDTH } from './node-metrics.ts';
 
 // The agent-side source of truth for the shared architecture diagram.
 // Mutations only ever arrive here through CommitGate, once Rime has actually
@@ -16,8 +17,6 @@ const LAYOUT_COLUMNS = 4;
 const LAYOUT_SPACING = 220;
 // Padding between a group boundary and its outermost members (§3.2).
 const GROUP_PADDING = 28;
-const NODE_W = 160;
-const NODE_H = 46;
 
 function slug(label: string): string {
   return label
@@ -274,8 +273,8 @@ export class CanvasStore {
       if (members.length === 0) continue;
       const minX = Math.min(...members.map((n) => n.x)) - GROUP_PADDING;
       const minY = Math.min(...members.map((n) => n.y)) - GROUP_PADDING - 14; // room for the label
-      const maxX = Math.max(...members.map((n) => n.x + NODE_W)) + GROUP_PADDING;
-      const maxY = Math.max(...members.map((n) => n.y + NODE_H)) + GROUP_PADDING;
+      const maxX = Math.max(...members.map((n) => n.x + NODE_WIDTH)) + GROUP_PADDING;
+      const maxY = Math.max(...members.map((n) => n.y + NODE_HEIGHT)) + GROUP_PADDING;
       out.push({ ...g, x: minX, y: minY, width: maxX - minX, height: maxY - minY });
     }
     return out;

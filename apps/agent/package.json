@@ -16,6 +16,7 @@
     "dev": "node src/main.ts dev",
     "start": "node src/main.ts start",
     "benchmark": "node src/bench/report.ts",
+    "layout-fixture": "node src/bench/layout-fixture.ts",
     "pronunciation": "node src/bench/pronunciation/run.ts",
     "latency": "node src/bench/latency.ts",
     "audit": "node src/bench/audit-session.ts",

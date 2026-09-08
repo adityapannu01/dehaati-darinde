@@ -12,13 +12,10 @@
 
 import ELK, { type ElkNode } from 'elkjs/lib/elk.bundled.js';
 import type { CanvasEdge, CanvasGroup, CanvasNode, LayoutDirection } from '@repo/protocol';
+import { NODE_HEIGHT, NODE_WIDTH } from './node-metrics.ts';
 
 export type { LayoutDirection };
 
-// Must match the renderer's node box (architecture-canvas.tsx) closely enough
-// that ELK's spacing looks right — exact pixel parity isn't required.
-const NODE_WIDTH = 168;
-const NODE_HEIGHT = 46;
 // Kept in sync with GROUP_PADDING (28) + the 14px label allowance in canvas.ts.
 const GROUP_PADDING = '[top=34,left=24,bottom=24,right=24]';
 

@@ -38,7 +38,7 @@ export function buildReport(): string {
 
   const lines: string[] = [];
   lines.push(
-    `Cartograph benchmark — ${SCENARIOS.length} generated scenarios (delay x interruptAt x corrections, plus 3 backchannel-during-narration cases) + 1 out-of-order case, run in both modes.`,
+    `Cartograph benchmark — ${SCENARIOS.length} generated scenarios (delay x interruptAt x corrections, plus 3 backchannel-during-narration cases and 3 interrupted direction-change cases) + 1 out-of-order case, run in both modes.`,
   );
   lines.push('');
   lines.push(['metric', 'cartograph', 'baseline'].join(' | '));
