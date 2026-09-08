@@ -157,10 +157,10 @@ It uses `turbo prune` to isolate the agent and its workspace dependencies, then 
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | Always required |
 | `AGENT_NAME` | Must match the frontend's dispatch name (`DD_agent`) |
 | `TTS_PROVIDER` | `rime` (default), `rime-plugin`, or `fishaudio` |
-| `RIME_MODEL`, `RIME_VOICE`, `RIME_SPEED` | Optional Rime tuning (see `.env.example`). English-only — `celeste` on Coda |
+| `RIME_MODEL`, `RIME_VOICE` | Optional Rime tuning (see `.env.example`). English-only — `celeste` on Coda |
 | `RIME_BASE_URL` | Rime WebSocket region origin. Default `wss://users-ws.rime.ai` (US West); `wss://users-east-ws.rime.ai` for US East |
 | `RIME_API_KEY` | **Only** when `TTS_PROVIDER=rime-plugin` |
-| `RIME_SAVE_OOVS` | `true` logs Rime's out-of-vocabulary words — a pronunciation-harness diagnostic, off in production |
+| `RIME_SPEED` | Global speech-rate multiplier (>1 slower). `timeScaleFactor` on coda; per-word slow-down isn't available (RIME_EVIDENCE.md §4a) |
 | `LLM_ENGINE`, `GRAPH_LLM_MODEL`, `GRAPH_STRUCTURED_METHOD` | `direct` (default) or `graph` — the LangGraph planner |
 | `SLOW_TOOL_MS` | Synthetic staging delay (default `0`); the deterministic benchmark fixture |
 | `CARTOGRAPH_BASELINE` | `true` disables fencing + the commit gate (naive-agent comparison) |

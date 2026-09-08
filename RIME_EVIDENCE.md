@@ -59,7 +59,7 @@ Every measured value is under 150ms — queued audio stops within tens of millis
 
 **Why Rime is slower to first audio than some alternatives, and why that isn't fixed here.** A comparative test (§4b) found Rime reaches first audio in ~1.3-1.7s against ~450-600ms for a comparable Inference-gateway provider. Root cause, confirmed by reading both client libraries' source: the gateway path pools and reuses WebSocket connections; the vendored Rime plugin opens a new connection per utterance. A protocol-level test confirmed Rime's own server tolerates connection reuse and would close most of the gap. This is not shipped — it would mean reimplementing the plugin's message protocol on the exact path the commit gate's word timestamps depend on, which is a disproportionate risk to the correctness guarantee this project is actually judged on, this close to submission.
 
-`pnpm test`: 251/251 passing.
+`pnpm test`: 256/256 passing.
 
 ## 4a. Why English only
 
@@ -80,6 +80,16 @@ A blinded comparison of the shipped Rime path against two LiveKit Inference-gate
 | Interruption handling | clean | clean | not reliably measurable in this environment |
 
 Rime and Cartesia both deliver a real per-sentence delivery signal; Fish Audio's connection reliability through the Inference gateway made its numbers not representative in this test environment. Pronunciation intelligibility was tested with plain, unrespelled text for a fair baseline across providers — Cartograph's shipped pronunciation lexicon (which fixes cases like "nginx") is validated separately in `apps/agent/src/bench/pronunciation/REPORT.md`. The blinded human-listening pass is prepared (`bench/tts-comparison/blind/`) but left as a manual step.
+
+## 4c. Pronunciation & controlled delivery
+
+`pnpm --filter DD_agent pronunciation` renders three fixtures through the shipped `coda:celeste` WebSocket path: 44 infrastructure terms (plain / candidate respelling / **the shipped `applyLexicon` output**), the number / identifier / address / punctuation / filler / false-start cases the PS also names, and a `timeScaleFactor` speed sweep. Clips + a wording table + a by-ear verdict column in `bench/pronunciation/REPORT.md`; `verdicts.json` holds the human judgement and survives re-runs.
+
+**The lever.** Coda has no inline phonemes (Mist v2 only, and Mist v2 has no word timestamps), so respelling the text sent to Rime is the only mechanism. `core/lexicon.ts` (one file, one `INFRA_KEYTERMS` list that also feeds the STT `keyterms_prompt`) is applied at the `ttsNode` tap — after the model, before Rime, buffered to sentence boundaries. Both sides of the commit gate's anchor check run through the same `applyLexicon`, so a respelled term never trips `anchor_mismatch` (regression-tested).
+
+**Controls we checked and cannot use on Coda** (saying so is scoring, not conceding). Read from `@livekit/agents-plugin-rime@1.7.1`'s `modelParams()`, not its type surface: `phonemizeBetweenBrackets`, `pauseBetweenBrackets` and `inlineSpeedAlpha` (the PS's *"slow selected words and phrases"* lever) are gated behind `modelId.includes("mist")` and never sent for `coda`. `noTextNormalization` is not forwarded for `coda` either, so Rime's number/date/symbol expansion is always on — hence the persona rule to phrase numbers and identifiers as words, and the §2 fixtures that render it against a naive prompt. Global speed (`timeScaleFactor` / `RIME_SPEED`) *is* forwarded and is swept in §3. `saveOovs` is declared in `TTSOptions` but inert — the plugin never forwards it, and `save_oovs=true` sent straight to `ws3` returns no OOV frames (verified) — so OOVs are judged by ear.
+
+**In-text respelling vs. a provider dictionary — a deliberate choice.** Rime's docs describe account-level custom pronunciations; we respell in the submitted text instead. The lever then lives in the repo (diff-reviewable), applies identically to the harness and production, and every substitution is visible when transcript and audio are compared — nothing hidden in an account a judge can't see.
 
 ## 5. Limitations
 

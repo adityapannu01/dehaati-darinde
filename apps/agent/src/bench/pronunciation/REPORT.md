@@ -1,76 +1,110 @@
-# Rime pronunciation harness
+# Rime pronunciation & controlled-delivery harness
 
-Rendered 44 infrastructure terms through the **shipped judged path** —
-Rime `coda` / speaker `celeste` / `eng` / WebSocket plugin. Model and voice held
-constant; the only variable is the submitted text.
+Everything rendered through the **shipped judged path** — Rime `coda` /
+speaker `celeste` / `eng` / WebSocket plugin,
+region `us-west-2`. Model and voice held constant; the only lever is the submitted
+text — Coda has **no inline phonemes** (Mist v2 only) and its text normalisation
+cannot be turned off (`noTextNormalization` is not forwarded for `coda` by
+`@livekit/agents-plugin-rime@1.7.1` — verified in `modelParams()`).
 
-- **A** — `This is <term>.` verbatim, what a naive prompt sends.
-- **B** — a hand-picked respelling (`terms.ts`), for comparison.
-- **C** — exactly what the shipped `ttsNode` tap sends Rime, i.e. `applyLexicon(...)`
-  from `core/lexicon.ts`. This is the one that ships. `winner` = `c` where the lexicon
-  changed the text; `a` where the plain form is already fine; `?` where B exists but
-  the lexicon has no entry (candidate for one).
+**Verdicts are a human pass.** Listen to the clip pair, then edit `verdicts.json` and
+re-run — the tables below merge it. `_(listen)_` = not yet judged.
 
-Coda has **no inline phonemes** (Mist v2 only — and Mist v2 has no word timestamps,
-which the commit gate needs), so respelling the submitted text is the only lever.
-Terms the lexicon could not meaningfully improve are left on the plain form.
+## 1. Domain vocabulary
 
-`/textnorm`: Rime's text-normalization inspection endpoint is not reachable on this
-API key (every `POST users.rime.ai/*` path returns synthesised audio), so
-"normalization mangled it" vs "synthesis mangled it" is isolated instead by
-comparing A against C by ear.
+- **A** — `This is <term>.` verbatim, what a naive prompt sends → `<id>.a.wav`
+- **B** — a hand-picked candidate respelling (`terms.ts`) → `<id>.b.wav`
+- **C** — exactly what the shipped `ttsNode` tap sends Rime (`applyLexicon`, `core/lexicon.ts`) → `<id>.c.wav`
 
-| term | A: plain | dur A | B: respelled | dur B | C: shipped lexicon | dur C | winner |
+| term | A: plain | dur | B: candidate | dur | C: shipped lexicon | dur | verdict |
 |---|---|--:|---|--:|---|--:|---|
-| nginx | `nginx` (a) | 1760 | `engine X` (b) | 1440 | `engine ex` (c) | 1520 | c |
-| PostgreSQL | `PostgreSQL` (a) | 1840 | `Postgres Q L` (b) | 2080 | `Postgres Q L` (c) | 2160 | c |
-| Postgres | `Postgres` (a) | 1600 | `post-gress` (b) | 1600 | _(no lexicon entry)_ |  | ? |
-| etcd | `etcd` (a) | 1520 | `et-cee-dee` (b) | 2160 | `et see dee` (c) | 2080 | c |
-| Redis | `Redis` (a) | 1280 | `red-iss` (b) | 2160 | _(no lexicon entry)_ |  | ? |
-| Kafka | `Kafka` (a) | 1280 | — |  | _(no lexicon entry)_ |  | a |
-| gRPC | `gRPC` (a) | 1680 | `g R P C` (b) | 2080 | `gee R P C` (c) | 2080 | c |
-| GraphQL | `GraphQL` (a) | 1680 | `graph Q L` (b) | 1680 | `Graph Q L` (c) | 1680 | c |
-| JWT | `JWT` (a) | 1760 | `J W T` (b) | 2320 | `J W T` (c) | 2000 | c |
-| OAuth | `OAuth` (a) | 1440 | `oh-auth` (b) | 1440 | `oh-auth` (c) | 1920 | c |
-| OIDC | `OIDC` (a) | 1840 | `O I D C` (b) | 1840 | `O I D C` (c) | 2000 | c |
-| S3 | `S3` (a) | 1360 | `S three` (b) | 1520 | `S three` (c) | 1440 | c |
-| EC2 | `EC2` (a) | 1600 | `E C two` (b) | 1440 | `E C two` (c) | 2880 | c |
-| IAM | `IAM` (a) | 1600 | `I A M` (b) | 2080 | `I A M` (c) | 2480 | c |
-| VPC | `VPC` (a) | 1440 | `V P C` (b) | 1520 | `V P C` (c) | 1520 | c |
-| CDN | `CDN` (a) | 1840 | `C D N` (b) | 2000 | `C D N` (c) | 1920 | c |
-| k8s | `k8s` (a) | 1680 | `Kubernetes` (b) | 1520 | `kubernetes` (c) | 1600 | c |
-| Kubernetes | `Kubernetes` (a) | 1520 | `koo-ber-net-eez` (b) | 2640 | _(no lexicon entry)_ |  | ? |
-| Istio | `Istio` (a) | 1920 | `ist-ee-oh` (b) | 2000 | _(no lexicon entry)_ |  | ? |
-| Envoy | `Envoy` (a) | 1360 | — |  | _(no lexicon entry)_ |  | a |
-| Traefik | `Traefik` (a) | 1440 | `traffic` (b) | 1520 | _(no lexicon entry)_ |  | ? |
-| HAProxy | `HAProxy` (a) | 2080 | `H A proxy` (b) | 2160 | `H A proxy` (c) | 2000 | c |
-| NATS | `NATS` (a) | 1280 | `nats` (b) | 1200 | _(no lexicon entry)_ |  | ? |
-| RabbitMQ | `RabbitMQ` (a) | 1680 | `Rabbit M Q` (b) | 1840 | _(no lexicon entry)_ |  | ? |
-| SQS | `SQS` (a) | 1920 | `S Q S` (b) | 2160 | _(no lexicon entry)_ |  | ? |
-| DynamoDB | `DynamoDB` (a) | 2400 | `Dynamo D B` (b) | 2160 | _(no lexicon entry)_ |  | ? |
-| ClickHouse | `ClickHouse` (a) | 1520 | `Click House` (b) | 1360 | _(no lexicon entry)_ |  | ? |
-| Elasticsearch | `Elasticsearch` (a) | 2000 | `Elastic Search` (b) | 1840 | _(no lexicon entry)_ |  | ? |
-| MinIO | `MinIO` (a) | 1520 | `min-I-O` (b) | 2720 | _(no lexicon entry)_ |  | ? |
-| Cassandra | `Cassandra` (a) | 1520 | — |  | _(no lexicon entry)_ |  | a |
-| Memcached | `Memcached` (a) | 2160 | `mem-cash-dee` (b) | 1920 | _(no lexicon entry)_ |  | ? |
-| MongoDB | `MongoDB` (a) | 1920 | `Mongo D B` (b) | 1840 | _(no lexicon entry)_ |  | ? |
-| MariaDB | `MariaDB` (a) | 1520 | `Maria D B` (b) | 2160 | _(no lexicon entry)_ |  | ? |
-| Keycloak | `Keycloak` (a) | 1280 | `Key Cloak` (b) | 1840 | _(no lexicon entry)_ |  | ? |
-| Vault | `Vault` (a) | 1040 | — |  | _(no lexicon entry)_ |  | a |
-| Consul | `Consul` (a) | 1520 | — |  | _(no lexicon entry)_ |  | a |
-| Prometheus | `Prometheus` (a) | 1680 | `pro-mee-thee-us` (b) | 3520 | _(no lexicon entry)_ |  | ? |
-| Grafana | `Grafana` (a) | 1360 | `gra-fah-na` (b) | 1760 | _(no lexicon entry)_ |  | ? |
-| Terraform | `Terraform` (a) | 1440 | — |  | _(no lexicon entry)_ |  | a |
-| WebRTC | `WebRTC` (a) | 1600 | `Web R T C` (b) | 2400 | `Web R T C` (c) | 1920 | c |
-| WebSocket | `WebSocket` (a) | 1280 | `Web Socket` (b) | 1520 | _(no lexicon entry)_ |  | ? |
-| CI/CD | `CI/CD` (a) | 2480 | `C I C D` (b) | 1760 | `C I C D` (c) | 2160 | c |
-| CLI | `CLI` (a) | 1600 | `C L I` (b) | 1680 | _(no lexicon entry)_ |  | ? |
-| ORM | `ORM` (a) | 1680 | `O R M` (b) | 1280 | _(no lexicon entry)_ |  | ? |
+| nginx | `nginx` | 1440 | `engine X` | 2000 | `engine ex` | 1840 | **lexicon** — 'engine ex' is the community-standard pronunciation; 'nginx' as a token is unspeakable |
+| PostgreSQL | `PostgreSQL` | 1680 | `Postgres Q L` | 2560 | `Postgres Q L` | 2080 | **lexicon** — 'Postgres-Q-L'; the raw form invites 'postgre-sequel' |
+| Postgres | `Postgres` | 1520 | `post-gress` | 1600 | _(no lexicon entry)_ |  | _(listen)_ |
+| etcd | `etcd` | 1600 | `et-cee-dee` | 1680 | `et see dee` | 1600 | _(listen)_ |
+| Redis | `Redis` | 1440 | `red-iss` | 1280 | _(no lexicon entry)_ |  | _(listen)_ |
+| Kafka | `Kafka` | 1200 | — |  | _(no lexicon entry)_ |  | _(listen)_ |
+| gRPC | `gRPC` | 2720 | `g R P C` | 2480 | `gee R P C` | 2960 | **lexicon** — initialism engineers spell out: 'gee-R-P-C' |
+| GraphQL | `GraphQL` | 1680 | `graph Q L` | 1760 | `Graph Q L` | 2560 | **lexicon** — said 'graph-Q-L', not 'graphkwl' |
+| JWT | `JWT` | 1600 | `J W T` | 1600 | `J W T` | 2160 | **lexicon** — initialism, spelled: 'J-W-T' |
+| OAuth | `OAuth` | 1280 | `oh-auth` | 2240 | `oh-auth` | 1920 | _(listen)_ |
+| OIDC | `OIDC` | 1600 | `O I D C` | 2000 | `O I D C` | 2080 | **lexicon** — initialism, spelled: 'O-I-D-C' |
+| S3 | `S3` | 1600 | `S three` | 1760 | `S three` | 1520 | _(listen)_ |
+| EC2 | `EC2` | 2000 | `E C two` | 2320 | `E C two` | 2400 | _(listen)_ |
+| IAM | `IAM` | 1600 | `I A M` | 1760 | `I A M` | 1920 | _(listen)_ |
+| VPC | `VPC` | 1680 | `V P C` | 1440 | `V P C` | 1920 | _(listen)_ |
+| CDN | `CDN` | 1280 | `C D N` | 1760 | `C D N` | 2400 | _(listen)_ |
+| k8s | `k8s` | 1840 | `Kubernetes` | 1520 | `kubernetes` | 1520 | **lexicon** — numeronym; only speakable expanded to 'kubernetes' |
+| Kubernetes | `Kubernetes` | 1600 | `koo-ber-net-eez` | 2800 | _(no lexicon entry)_ |  | _(listen)_ |
+| Istio | `Istio` | 1520 | `ist-ee-oh` | 1840 | _(no lexicon entry)_ |  | _(listen)_ |
+| Envoy | `Envoy` | 1440 | — |  | _(no lexicon entry)_ |  | _(listen)_ |
+| Traefik | `Traefik` | 1440 | `traffic` | 1360 | `traffic` | 1280 | **lexicon** — pronounced 'traffic' — project-documented, not an ear call |
+| HAProxy | `HAProxy` | 1920 | `H A proxy` | 2080 | `H A proxy` | 1840 | _(listen)_ |
+| NATS | `NATS` | 1920 | `nats` | 1280 | _(no lexicon entry)_ |  | _(listen)_ |
+| RabbitMQ | `RabbitMQ` | 1760 | `Rabbit M Q` | 2640 | _(no lexicon entry)_ |  | _(listen)_ |
+| SQS | `SQS` | 2320 | `S Q S` | 1600 | _(no lexicon entry)_ |  | _(listen)_ |
+| DynamoDB | `DynamoDB` | 1680 | `Dynamo D B` | 1920 | _(no lexicon entry)_ |  | _(listen)_ |
+| ClickHouse | `ClickHouse` | 1520 | `Click House` | 1440 | _(no lexicon entry)_ |  | _(listen)_ |
+| Elasticsearch | `Elasticsearch` | 2080 | `Elastic Search` | 2000 | _(no lexicon entry)_ |  | _(listen)_ |
+| MinIO | `MinIO` | 1520 | `min-I-O` | 1520 | _(no lexicon entry)_ |  | _(listen)_ |
+| Cassandra | `Cassandra` | 1440 | — |  | _(no lexicon entry)_ |  | _(listen)_ |
+| Memcached | `Memcached` | 1360 | `mem-cash-dee` | 1600 | _(no lexicon entry)_ |  | _(listen)_ |
+| MongoDB | `MongoDB` | 1520 | `Mongo D B` | 1680 | _(no lexicon entry)_ |  | _(listen)_ |
+| MariaDB | `MariaDB` | 1600 | `Maria D B` | 1760 | _(no lexicon entry)_ |  | _(listen)_ |
+| Keycloak | `Keycloak` | 1200 | `Key Cloak` | 1680 | _(no lexicon entry)_ |  | _(listen)_ |
+| Vault | `Vault` | 1120 | — |  | _(no lexicon entry)_ |  | _(listen)_ |
+| Consul | `Consul` | 1280 | — |  | _(no lexicon entry)_ |  | _(listen)_ |
+| Prometheus | `Prometheus` | 1520 | `pro-mee-thee-us` | 2000 | _(no lexicon entry)_ |  | _(listen)_ |
+| Grafana | `Grafana` | 1520 | `gra-fah-na` | 1760 | _(no lexicon entry)_ |  | _(listen)_ |
+| Terraform | `Terraform` | 1440 | — |  | _(no lexicon entry)_ |  | _(listen)_ |
+| WebRTC | `WebRTC` | 2000 | `Web R T C` | 2080 | `Web R T C` | 2160 | **lexicon** — 'Web-R-T-C' |
+| WebSocket | `WebSocket` | 1360 | `Web Socket` | 1360 | _(no lexicon entry)_ |  | _(listen)_ |
+| CI/CD | `CI/CD` | 2960 | `C I C D` | 2400 | `C I C D` | 2400 | **lexicon** — 'C-I-C-D', the slash is not spoken |
+| CLI | `CLI` | 1680 | `C L I` | 1920 | _(no lexicon entry)_ |  | _(listen)_ |
+| ORM | `ORM` | 1440 | `O R M` | 1760 | _(no lexicon entry)_ |  | _(listen)_ |
 
-## OOV words
+## 2. Numbers, codes, identifiers, addresses + delivery
 
-Set `RIME_SAVE_OOVS=true` and run a real session — the Rime API then logs the words
-it had to guess at (agent worker log / Rime dashboard). That list is the definitive
-input for which terms need a lexicon entry or a Rime dictionary submission.
+The persona (`agent.ts`, "Writing for the ear") tells the LLM to phrase these as words,
+not digits/symbols — Coda normalisation is unpredictable and cannot be disabled. Each
+row: `<id>.naive.wav` (what a naive prompt emits) vs `<id>.persona.wav` (the rule).
 
-_Generated by `pnpm --filter DD_agent pronunciation` on 2026-09-07._
+| id | category | naive ("before") | persona form ("after") | listen for | verdict |
+|---|---|---|---|---|---|
+| `port-number` | number | `The gateway listens on port 8080.` | `The gateway listens on port eighty eighty.` | "8080" — "eight thousand eighty", digit-by-digit, or a clean "eighty eighty" | _(listen)_ |
+| `version-string` | identifier | `Deploy version 2.1.3.` | `Deploy version two point one point three.` | whether "2.1.3" is read as a date, a decimal, or three numbers | _(listen)_ |
+| `replica-count` | number | `Scale the workers to 3 replicas.` | `Scale the workers to three replicas.` | a bare digit "3" — usually fine, the control case | _(listen)_ |
+| `percentage` | number | `The SLO is 99.9% availability.` | `The SLO is ninety nine point nine percent.` | "%" and the decimal — does "99.9" survive normalisation | _(listen)_ |
+| `region-code` | identifier | `Run it in us-east-1.` | `Run it in US East one.` | "us-east-1" — hyphens as pauses, "1" swallowed, or spelled letter-by-letter | _(listen)_ |
+| `ip-address` | address | `The database is at 10.0.0.1.` | `The database is at ten dot zero dot zero dot one.` | four octets vs "ten point zero zero one" / one decimal number | _(listen)_ |
+| `cidr` | address | `The VPC subnet is 10.0.0.0/16.` | `The VPC subnet is a slash sixteen.` | whether "/16" is intelligible at all — the persona rewrites it | _(listen)_ |
+| `port-range` | number | `Open ports 30000-32767.` | `Open ports thirty thousand to thirty two thousand seven hundred.` | a hyphenated numeric range — almost always mangled, hence the rewrite | _(listen)_ |
+| `comma-vs-period` | punctuation | `Adding a Redis cache. Then wiring it to the gateway.` | `Adding a Redis cache, then wiring it to the gateway.` | comma = short pause + held pitch; period = full stop + falling pitch | _(listen)_ |
+| `em-dash` | punctuation | `That is a queue (Kafka, specifically).` | `That is a queue — Kafka, specifically.` | em-dash prosody vs a parenthetical; does Rime pause on "—" | _(listen)_ |
+| `opening-filler` | filler | `Adding the auth service now.` | `Okay, adding the auth service now.` | a single "Okay," lead-in — natural, or clipped/robotic | _(listen)_ |
+| `false-start` | false-start | `Adding a Redis — no wait, a Memcached — cache.` | `Adding a Redis cache. Actually, make that Memcached.` | the clean two-sentence self-correction should sound deliberate, not confused | _(listen)_ |
+| `repeated-word` | punctuation | `The gateway routes to the orders service and payments service.` | `The gateway routes to the orders service and the payments service.` | the deliberate repeated "service" — emphatic, or a stutter | _(listen)_ |
+
+## 3. Speed
+
+Same sentence — _"The API gateway routes requests to the auth service and the orders service."_ — at three `timeScaleFactor` values
+(`RIME_SPEED` env in production; >1 = slower on Coda). Clips: `speed-<factor>.wav`.
+Per-word slow-down (`inlineSpeedAlpha`) is **not** available on Coda — the plugin gates
+it behind `modelId.includes("mist")`.
+
+| factor | dur (ms) | verdict |
+|--:|--:|---|
+| 0.9 | 4455 | _(listen)_ |
+| 1 | 5760 | _(listen)_ |
+| 1.15 | 5670 | _(listen)_ |
+
+## OOV reporting — checked, not available
+
+The Rime `ws3` streaming endpoint returns no out-of-vocabulary report. Verified
+directly: `save_oovs=true` / `saveOovs=true` on the `ws3` URL yields only `chunk` /
+`timestamps` / `done` frames, and `@livekit/agents-plugin-rime@1.7.1` never forwards
+`saveOovs` anyway. So which terms Rime guessed at is judged here by ear (A vs C), not
+from a provider list. Rime's account dashboard may surface OOVs for a real session;
+that is the only other source.
+
+_Generated by `pnpm --filter DD_agent pronunciation` on 2026-09-08._

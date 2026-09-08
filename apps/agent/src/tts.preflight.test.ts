@@ -14,13 +14,11 @@
 // test on a train is noise. Run it deliberately before submitting:
 //   pnpm --filter DD_agent test tts.preflight
 import { describe, expect, it } from 'vitest';
+import { RIME_DEFAULTS } from './tts.ts';
 
 const CATALOG_URL = 'https://users.rime.ai/data/voices/all-v2.json';
 
-// Must match apps/agent/.env.example and src/tts.ts.
-const MODEL = 'coda';
-const VOICE = 'celeste';
-const LANG = 'eng';
+const { model: MODEL, voice: VOICE, language: LANG } = RIME_DEFAULTS;
 
 /** The catalog nests voice names under model -> language. Tolerate 3- and 2-letter language keys. */
 function voicesFor(catalog: unknown, model: string, lang: string): string[] {

@@ -56,9 +56,22 @@ function rimePluginSpeedOption(model: string): Record<string, number> {
   return { [key]: value };
 }
 
-// English-only product (see RIME_EVIDENCE.md §4a). The Coda WebSocket URL still
-// carries a `lang` parameter, so the plugin must send it — it just never varies.
-const LANG = 'eng';
+/**
+ * The shipped Rime configuration. English-only (RIME_EVIDENCE.md §4a) — the
+ * Coda WebSocket URL still carries a `lang` parameter so the plugin must send
+ * it, it just never varies. This is the combination the event preflight
+ * validates (`tts.preflight.test.ts`) and the pronunciation harness renders
+ * through; env vars override any field for a deploy.
+ *   baseURL: `wss://users-ws.rime.ai` = US West (us-west-2); the only other
+ *   endpoint is `wss://users-east-ws.rime.ai` (us-east-1). Rime has no APAC
+ *   region. Origin only — the plugin appends `/ws3?...`. Not a secret.
+ */
+export const RIME_DEFAULTS = {
+  model: 'coda',
+  voice: 'celeste',
+  language: 'eng',
+  baseURL: 'wss://users-ws.rime.ai',
+} as const;
 
 /** Human-readable Rime region for the `describe` string, from the WS origin (Part 2.3 disclosure). */
 function rimeRegion(baseURL: string): string {
@@ -68,12 +81,9 @@ function rimeRegion(baseURL: string): string {
 }
 
 export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTSSelection {
-  const voice = env('RIME_VOICE', 'celeste');
-  const model = env('RIME_MODEL', 'coda');
-  // Rime WebSocket region (Part 2.3 / PS p.5). `wss://users-ws.rime.ai` = US West
-  // (us-west-2, default); `wss://users-east-ws.rime.ai` = US East. Rime has no
-  // APAC endpoint. Origin only — the plugin appends `/ws3?...`. Not a secret.
-  const baseURL = env('RIME_BASE_URL', 'wss://users-ws.rime.ai');
+  const voice = env('RIME_VOICE', RIME_DEFAULTS.voice);
+  const model = env('RIME_MODEL', RIME_DEFAULTS.model);
+  const baseURL = env('RIME_BASE_URL', RIME_DEFAULTS.baseURL);
 
   switch (provider) {
     case 'rime-plugin': {
@@ -90,13 +100,15 @@ export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTS
         baseURL,
         modelId: model,
         speaker: voice,
-        lang: LANG,
+        lang: RIME_DEFAULTS.language,
         // REQUIRED: without this, synthesis is non-streaming chunked and
         // alignedTranscript is false — the commit gate has nothing to key off.
         useWebsocket: true,
-        // Log out-of-vocabulary words Rime had to guess at (§4.3). Default off —
-        // it is a diagnostic for pronunciation-harness runs, not production.
-        saveOovs: env('RIME_SAVE_OOVS', 'false').toLowerCase() === 'true',
+        // `saveOovs` is NOT set: verified it is inert on this path —
+        // @livekit/agents-plugin-rime@1.7.1 never forwards it, and sending
+        // save_oovs=true straight to ws3 returns no OOV frames anyway (see
+        // bench/pronunciation/REPORT.md). OOVs are judged by ear instead.
+        //
         // reduceLatency is NOT set here, deliberately, after checking:
         // @livekit/agents-plugin-rime@1.7.1's modelParams() only forwards
         // reduceLatency into the wire request when modelId is 'mistv2' — for

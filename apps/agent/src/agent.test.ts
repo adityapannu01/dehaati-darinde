@@ -204,4 +204,39 @@ describe('agent evaluation', () => {
       expect(spokenText).not.toContain('redis');
     },
   );
+
+  /**
+   * PS "Pronunciation and controlled delivery": the persona's "Writing for the
+   * ear" rules (agent.ts) exist because the text goes through Rime's Coda
+   * normalisation, which cannot be turned off (RIME_EVIDENCE.md §4a). This
+   * asserts they actually hold against a number/identifier-dense instruction —
+   * the case that breaks a naive prompt.
+   */
+  it(
+    'writes for the ear: numbers as words, no markup, short sentences',
+    { timeout: 30000 },
+    async () => {
+      const result = await session
+        .run({ userInput: 'Add an API gateway that listens on port 8080.' })
+        .wait();
+
+      const reply = result.events
+        .filter((e) => e.type === 'message' && e.item.role === 'assistant')
+        .flatMap((e) => (e as { item: { content: unknown[] } }).item.content)
+        .filter((c): c is string => typeof c === 'string')
+        .join(' ')
+        .trim();
+
+      expect(reply.length, 'agent produced no spoken reply').toBeGreaterThan(0);
+      // "8080" must be spoken as words ("eight thousand" / "port eighty eighty"),
+      // never as a digit run that Rime's normaliser will mangle.
+      expect(reply, `digit run in: ${reply}`).not.toMatch(/\d{2,}/);
+      // Plain text only — no markdown / list / code leaking into speech.
+      expect(reply, `markup in: ${reply}`).not.toMatch(/[*#`|]|(?:^|\n)[-*]\s/);
+      // Sentences stay short (persona says <15 words; a little slack for TTS).
+      for (const s of reply.split(/(?<=[.!?])\s+/).filter(Boolean)) {
+        expect(s.split(/\s+/).length, `long sentence: "${s}"`).toBeLessThanOrEqual(18);
+      }
+    },
+  );
 });

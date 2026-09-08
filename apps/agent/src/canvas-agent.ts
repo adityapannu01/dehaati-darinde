@@ -198,7 +198,8 @@ export class CanvasAgent extends voice.Agent {
     // applying the lexicon and releasing — this also matches how the commit
     // gate already thinks (in sentences).
     let buffer = '';
-    const SENTENCE_END = /[.!?।॥。？！؟]/;
+    // English-only product (RIME_EVIDENCE.md §4a) — matches core/delivery.ts.
+    const SENTENCE_END = /[.!?]/;
     const tap = new TransformStream<string, string>({
       transform: (chunk, controller) => {
         this.onGeneratedChunk(streamGeneration, chunk);

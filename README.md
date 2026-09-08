@@ -60,7 +60,7 @@ browser mic → LiveKit room → DD_agent worker
 - **Canvas divergence oracle** (`apps/agent/src/bench/oracle.ts`): independently re-derives the expected canvas from only the heard transcript and diffs it against the actual canvas.
 - **Layered layout** (`apps/agent/src/core/layout.ts`): the agent recomputes an ELK `layered` layout after every committed mutation and re-publishes node positions; the browser animates nodes into place.
 - **Word-synced forming nodes**: Rime's aligned word timestamps are forwarded to the browser, and a staged-but-uncommitted node renders "forming" (dashed, translucent), going solid the instant its sentence commits.
-- **Pronunciation lexicon** (`apps/agent/src/core/lexicon.ts`): applied after the LLM and before Rime, so infrastructure terms (e.g. `nginx` → "engine ex") are pronounced correctly without ever touching the transcript, ledger, or canvas.
+- **Pronunciation lexicon** (`apps/agent/src/core/lexicon.ts`): applied after the LLM and before Rime, so infrastructure terms (e.g. `nginx` → "engine ex") are pronounced correctly without ever touching the transcript, ledger, or canvas. `bench/pronunciation/` renders it against a naive prompt for 44 terms plus the numbers / identifiers / addresses / punctuation / filler / false-start fixtures the PS names, and a speed sweep — clips + `verdicts.json` (a by-ear pass) committed.
 - **Ambient meeting mode** (`ADDRESSIVITY=true`): every overheard utterance is scored on two independent axes — *addressed* (should the agent speak) and *salient* (should it draw). Overheard speech can only ever create or destroy proposals; committed canvas state changes only on speech addressed to the agent.
 
 ## Setup
@@ -91,7 +91,7 @@ Nodes get real vendor logos (Iconify) matched from their labels. `?sketch=1` on 
 - `SLOW_TOOL_MS` (default `0`) — artificial delay injected into staging tool calls, so an interruption race reproduces reliably.
 - `CARTOGRAPH_BASELINE=true` — disables generation fencing and the commit gate entirely, for a naive-agent comparison. The HUD shows a **BASELINE MODE** badge when on.
 - `ADDRESSIVITY=true` (+ `ADDRESSIVITY_THRESHOLD`, default `0.6`) — ambient meeting mode.
-- `RIME_SAVE_OOVS=true` — log Rime's out-of-vocabulary words for a pronunciation-harness session. `RIME_BASE_URL` switches the Rime WebSocket region.
+- `RIME_SPEED` — global speech-rate multiplier (>1 slower; `timeScaleFactor` on Coda). `RIME_BASE_URL` switches the Rime WebSocket region (US West default / US East).
 - `LAYOUT_DIRECTION` (`RIGHT` | `DOWN`) · `COMPONENT_LOOKUP=fixture` (skip the network for `explainComponent`).
 
 ### Benchmark
@@ -104,7 +104,7 @@ Runs 48 deterministic scenarios (a `toolDelay × interruptAt × corrections` mat
 
 Live interruption/recovery latency: `pnpm --filter DD_agent dev 2>&1 | tee /tmp/agent.log`, hold a call with real interruptions, then `pnpm --filter DD_agent latency < /tmp/agent.log` — see [`apps/agent/src/bench/live-latency.md`](apps/agent/src/bench/live-latency.md).
 
-Other harnesses: `pnpm --filter DD_agent pronunciation` (44 infra terms through the shipped Rime path → clips + `bench/pronunciation/REPORT.md`); `pnpm --filter DD_agent addressivity` (confusion matrix → `bench/ADDRESSIVITY_MATRIX.md`); `pnpm --filter DD_agent tts-comparison` (blinded comparison against Cartesia and Fish Audio → `bench/tts-comparison/REPORT.md`, see [`RIME_EVIDENCE.md`](RIME_EVIDENCE.md) for the summary).
+Other harnesses: `pnpm --filter DD_agent pronunciation` (domain vocab + numbers/identifiers/addresses/punctuation/fillers/false-starts + a speed sweep through the shipped Rime path → clips + `bench/pronunciation/REPORT.md`); `pnpm --filter DD_agent addressivity` (confusion matrix → `bench/ADDRESSIVITY_MATRIX.md`); `pnpm --filter DD_agent tts-comparison` (blinded comparison against Cartesia and Fish Audio → `bench/tts-comparison/REPORT.md`, see [`RIME_EVIDENCE.md`](RIME_EVIDENCE.md) for the summary).
 
 ## Third-party services
 

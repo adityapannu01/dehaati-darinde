@@ -1,0 +1,19 @@
+{
+  "_comment": "Human verdicts for REPORT.md. verdict: a=plain is fine, b=candidate respelling wins, c=shipped lexicon wins, fix=still wrong. Seeded entries below encode a KNOWN pronunciation or a structural fact (a numeronym/initialism must be expanded to be spoken); the rest are left unset for a listen-and-fill pass against the .wav clips.",
+  "nginx": {
+    "verdict": "c",
+    "note": "'engine ex' is the community-standard pronunciation; 'nginx' as a token is unspeakable"
+  },
+  "traefik": {
+    "verdict": "c",
+    "note": "pronounced 'traffic' — project-documented, not an ear call"
+  },
+  "k8s": { "verdict": "c", "note": "numeronym; only speakable expanded to 'kubernetes'" },
+  "grpc": { "verdict": "c", "note": "initialism engineers spell out: 'gee-R-P-C'" },
+  "jwt": { "verdict": "c", "note": "initialism, spelled: 'J-W-T'" },
+  "oidc": { "verdict": "c", "note": "initialism, spelled: 'O-I-D-C'" },
+  "graphql": { "verdict": "c", "note": "said 'graph-Q-L', not 'graphkwl'" },
+  "webrtc": { "verdict": "c", "note": "'Web-R-T-C'" },
+  "ci-cd": { "verdict": "c", "note": "'C-I-C-D', the slash is not spoken" },
+  "postgresql": { "verdict": "c", "note": "'Postgres-Q-L'; the raw form invites 'postgre-sequel'" }
+}
