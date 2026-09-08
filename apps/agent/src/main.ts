@@ -12,14 +12,12 @@ import type { LedgerEvent } from '@repo/protocol';
 import { AmbientListener } from './core/ambient-listener.ts';
 import type { AddressivityContext } from './core/addressivity.ts';
 import { classifyUtterance, route } from './core/addressivity.ts';
-import { LanguageRouter } from './core/language-router.ts';
 import { INFRA_KEYTERMS } from './core/lexicon.ts';
 import { EventLedger } from './core/ledger.ts';
 import { layoutCanvas } from './core/layout.ts';
 import { ProposalStore } from './core/proposals.ts';
 import { StagingBuffer } from './core/staging.ts';
 import { isBackchannel } from './core/turn-taking.ts';
-import { LANG_NAME, TESTED_LANGUAGES, toCodaLang } from './voices.ts';
 import { CanvasPublisher } from './transport/publisher.ts';
 import { createTTS } from './tts.ts';
 import { resolveLLMEngine } from './graph/config.ts';
@@ -62,23 +60,8 @@ function ghostLabelFrom(utterance: string): string | null {
 export default defineAgent({
   entry: async (ctx) => {
     // Pick the TTS engine (Rime by default) from TTS_PROVIDER. See src/tts.ts.
-    const { tts, supportsExpressive, describe, updateLanguage } = createTTS();
+    const { tts, supportsExpressive, describe } = createTTS();
     logger.info(`[DD_agent] TTS: ${describe}`);
-
-    // Multilingual (MULTILINGUAL_AND_PRONUNCIATION.md §2). Off by default. When
-    // on, STT detects the language per turn and the Rime speaker/lang swap
-    // between turns via a hysteresis'd LanguageRouter. §0 spike: Coda returns
-    // word timestamps ONLY for English, so non-English turns run in a degraded
-    // mode — the commit gate falls back to onTurnComplete granularity.
-    const multilingualEnabled =
-      env('RIME_MULTILINGUAL', 'false').toLowerCase() === 'true' && updateLanguage !== undefined;
-    const languageRouter = new LanguageRouter({ initial: env('RIME_LANGUAGE', 'eng') });
-    function applyLanguage(lang: string, speaker: string): void {
-      // The next ttsNode's .stream() rebuilds the WS URL from the plugin's
-      // opts, so the switch lands on the next turn's reply — never
-      // mid-utterance (§2.4 warning 1).
-      updateLanguage?.(lang, speaker);
-    }
 
     // Kill switch for the LangGraph planner: 'direct' (default) is today's
     // single inference.LLM call; 'graph' routes through CanvasAgent.llmNode.
@@ -230,15 +213,6 @@ export default defineAgent({
         addressivity: addressivityEnabled
           ? { enabled: true, threshold: addressivityThreshold, ghostCount: proposals.list().length }
           : { enabled: false },
-        language: multilingualEnabled
-          ? {
-              enabled: true,
-              code: languageRouter.currentLang,
-              name: LANG_NAME[languageRouter.currentLang] ?? languageRouter.currentLang,
-              speaker: languageRouter.currentSpeaker,
-              degradedTiming: languageRouter.degradedTiming,
-            }
-          : { enabled: false },
       });
     }
 
@@ -315,9 +289,7 @@ export default defineAgent({
       // See all available models at https://docs.livekit.io/agents/models/stt/
       stt: new inference.STT({
         model: 'assemblyai/universal-3-5-pro',
-        // 'multi' turns on AssemblyAI's native mid-sentence code-switching +
-        // per-turn language detection; 'en' otherwise (§2.2).
-        language: multilingualEnabled ? 'multi' : 'en',
+        language: 'en',
         // Bias recognition toward the infra vocabulary the lexicon respells for
         // TTS — so "nginx"/"etcd" are recognised too, not just pronounced (§3.5).
         modelOptions: { keyterms_prompt: [...INFRA_KEYTERMS] },
@@ -403,28 +375,6 @@ export default defineAgent({
 
     session.on(voice.AgentSessionEventTypes.UserInputTranscribed, (ev) => {
       if (!ev.isFinal) return;
-      // §2 (multilingual): AssemblyAI reports the detected language on the
-      // event. Route it through the hysteresis'd LanguageRouter and, on a
-      // confirmed switch, swap the Rime speaker/lang BEFORE this turn's reply
-      // is synthesised (ttsNode reads the plugin opts at stream-open).
-      if (multilingualEnabled && !isBackchannel(ev.transcript, { minWords: INTERRUPTION_MIN_WORDS })) {
-        const sw = languageRouter.observe(ev.language);
-        if (sw) {
-          applyLanguage(sw.lang, sw.speaker);
-          const tested = TESTED_LANGUAGES.has(sw.lang) ? '' : ' (untested voice)';
-          const degraded = sw.degradedTiming ? ' — degraded commit timing, no word timestamps' : '';
-          ledger.push('language_switched', gm.currentId, `${LANG_NAME[sw.lang] ?? sw.lang}${tested}${degraded}`);
-          logger.info(`[DD_agent] language -> ${sw.lang} / ${sw.speaker}${degraded}`);
-        }
-        const unsupported = languageRouter.takeUnsupported();
-        if (unsupported) {
-          const coda = toCodaLang(unsupported);
-          if (!coda) {
-            ledger.push('language_unsupported', gm.currentId, unsupported);
-            logger.info(`[DD_agent] detected unsupported language: ${unsupported} — staying on ${languageRouter.currentLang}`);
-          }
-        }
-      }
       // §2: keep the addressed participant's turns in the rolling context
       // window, and let their disagreement clear a matching proposal (a
       // primary "no, not Kafka" is as good as an overheard one).
@@ -551,7 +501,7 @@ export default defineAgent({
       logger.info(`[DD_agent] addressivity ON (τ=${addressivityThreshold})`);
       const ambientStt = new inference.STT({
         model: 'assemblyai/universal-3-5-pro',
-        language: multilingualEnabled ? 'multi' : 'en',
+        language: 'en',
         modelOptions: { keyterms_prompt: [...INFRA_KEYTERMS] },
       });
       const listener = new AmbientListener({

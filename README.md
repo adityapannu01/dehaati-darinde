@@ -4,7 +4,7 @@
 
 An engineer thinks out loud through a system design — hands free, never breaking flow to touch a mouse. The agent listens, narrates what it is drawing, and the canvas fills in with services and their connections in real time as they talk. They correct themselves mid-sentence constantly, the way anyone does when thinking aloud ("...writes to Redis — no, Memcached") — and the canvas ends up showing **exactly what they actually heard the agent say**, never what it merely intended to say.
 
-See [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) (if present locally — it is not committed) for the full design rationale. This README is the disclosure document: what's running, how to reproduce it, and what it can't do yet.
+This README is the disclosure document: what's running, how to reproduce it, and what it can't do yet. The two companion documents are [`TECHNICAL_REVIEW.md`](TECHNICAL_REVIEW.md) (the defect register and design decisions behind the commit gate) and [`RIME_EVIDENCE.md`](RIME_EVIDENCE.md) (the measured results, the acceptance tests, and §4a on why the product is English-only). Earlier planning docs have been removed — they described work that was reworked or scoped out.
 
 ## The claim, in one sentence
 
@@ -18,23 +18,19 @@ Reported but not the headline claim: perceived response time (see [`apps/agent/s
 |---|---|
 | Provider | Rime, via the official `@livekit/agents-plugin-rime` — the **direct plugin**, not the LiveKit Inference gateway |
 | Package | `@livekit/agents-plugin-rime@1.7.1` (peer-pinned to `@livekit/agents@1.7.1`) |
-| Model ID | `coda` (all languages) |
+| Model ID | `coda` |
+| Speaker / `lang` | `celeste` / `eng` — **English only** (see below) |
 | Endpoint | `wss://users-ws.rime.ai/ws3?...` (WebSocket streaming) |
+| Region | `us-west-2` (US West), via `wss://users-ws.rime.ai/ws3`; `RIME_BASE_URL` switches it to `wss://users-east-ws.rime.ai` (US East, `us-east-1`). Rime publishes only US West and US East WebSocket endpoints — there is no APAC region — so synthesis from our location is transpacific. |
 | Transport | Browser ↔ LiveKit WebRTC room ↔ agent worker ↔ Rime WebSocket |
 | Audio format | PCM, 24 000 Hz, mono |
+| Word timestamps | **yes** (verified live) — this is what drives the commit gate |
 | Auth | `RIME_API_KEY`, server-side only (`apps/agent/.env.local`), never in `apps/web` |
-
-**Speaker / language matrix** (the single-language row became a matrix once `RIME_MULTILINGUAL` was added — see `RIME_EVIDENCE.md §4a` for the full one):
-
-| Language | Speaker | `lang` | Word timestamps | Commit gate | Tested |
-|---|---|---|---|---|---|
-| English | `celeste` | `eng` | **yes** (verified live) | per-sentence | **yes** |
-| Hindi | `nadi` | `hin` | **no** (§0 spike) | degraded — `onTurnComplete` | **yes** |
-| es / fr / de / it / ja / pt / ar | mapped in `voices.ts` | — | not verified | degraded | no |
+| Catalog freshness | `pnpm --filter DD_agent test tts.preflight` re-checks `coda`/`celeste`/`eng` against Rime's live catalog before submitting (PS p.5) |
 
 **Why the plugin and not the Inference gateway:** the gateway's `RimeOptions` exposes no timestamp flag, so it never emits aligned word timings — and without those, the commit gate (the whole point of this project) has no signal to key off. The gateway path is kept in `apps/agent/src/tts.ts` as a disclosed, observable fallback (`TTS_PROVIDER=rime`): it works, but degrades commit granularity from per-sentence to per-turn since there's no word-level delivery evidence. `TTS_PROVIDER=fishaudio` is the pre-Rime baseline, kept only as a rollback path.
 
-**Multilingual is off by default and, for non-English, degraded** — the §0 spike found Coda returns word timestamps only for English, so a Hindi turn commits at turn granularity, not per sentence. English is unaffected. See `RIME_EVIDENCE.md §4a`.
+**English only, deliberately.** A `§0` spike found Rime Coda emits word-level timestamps *only* for English — Hindi and Japanese synthesise fine but return zero timed words. A multilingual mode was built and then removed rather than ship the commit gate — the guarantee this whole product rests on — in a degraded state for every language but one. See [`RIME_EVIDENCE.md §4a`](RIME_EVIDENCE.md) for the spike and the reasoning.
 
 ## Architecture
 
@@ -67,7 +63,6 @@ browser mic → LiveKit room → DD_agent worker
 - **Word-synced forming nodes** (`{ kind: 'word' | 'staging' }` on the data channel): Rime's aligned word timestamps are forwarded to the browser, and a staged-but-uncommitted node renders "forming" (dashed, translucent) — firming up as the word naming it is spoken, going solid when its sentence commits it.
 - **Pronunciation harness** (`apps/agent/src/bench/pronunciation/`): 44 infrastructure terms rendered through the shipped `coda:celeste` WebSocket path in two spellings each, with `saveOovs` on. Clips + a wording table are committed; `pnpm --filter DD_agent pronunciation` regenerates.
 - **Ambient meeting mode** (`ADDRESSIVITY=true`, `apps/agent/src/core/{addressivity,proposals,ambient-listener}.ts`): every overheard utterance is scored on two independent axes — *addressed* (→ the agent speaks) and *salient* (→ it draws). A colleague's idea becomes a dashed **ghost** proposal, promoted to committed state only when a human confirms it or the agent narrates it, removed by a disagreement or a timeout. **Overheard speech can only ever create or destroy proposals — committed state changes only on addressed speech.**
-- **Multilingual** (`RIME_MULTILINGUAL=true`, `apps/agent/src/core/language-router.ts` + `voices.ts`): AssemblyAI detects the language per turn; a two-turn-hysteresis router swaps the Coda speaker + `lang` between turns (never mid-utterance). The `DeliveryTracker` counts non-Latin sentence terminators (`।` `。` `？` `؟`). Component names stay Latin in every language. Non-English is a documented degraded mode — see the disclosure above.
 - **Pronunciation lexicon** (`apps/agent/src/core/lexicon.ts`): applied at the `ttsNode` tap, buffered to sentence boundaries, after the model and before Rime — the transcript, ledger and canvas keep real spellings. Both sides of the commit gate's anchor check run through the same lexicon so a respelled term (`nginx` → `engine ex`) never trips `anchor_mismatch`. The infra term list also feeds the STT `keyterms_prompt`.
 
 ## Setup
@@ -98,7 +93,7 @@ Nodes get real vendor logos (Iconify) matched from their labels. `?sketch=1` on 
 - `SLOW_TOOL_MS` (default `0`) — artificial delay injected into staging tool calls, so an interruption race reproduces reliably. The **deterministic test fixture** the benchmark relies on — kept deliberately (§5.4). `explainComponent` is a *real* slow tool alongside it.
 - `CARTOGRAPH_BASELINE=true` — disables generation fencing and the commit gate entirely (mutations land the instant they're staged, regardless of whether the describing sentence was ever spoken). This is the naive-agent comparison mode; the HUD shows a **BASELINE MODE** badge when it's on.
 - `ADDRESSIVITY=true` (+ `ADDRESSIVITY_THRESHOLD`, default `0.6`) — ambient meeting mode: listen to *every* participant, not just the one `AgentSession` binds to. A second engineer's overheard speech can only ever create or destroy **proposals** (dashed "ghost" nodes); committed state still changes only on speech addressed to the agent. **Not yet validated with two live browser tabs** — the multi-participant STT path is best-effort.
-- `RIME_MULTILINGUAL=true` — detect the language per turn (AssemblyAI `multi`) and swap the Rime speaker/language between turns with two-turn hysteresis. **Non-English is degraded** (no per-sentence commit gate — Coda gives no non-English word timestamps). `eng` + `hin` tested; 7 more Coda languages configured, untested. `RIME_SAVE_OOVS=true` for a pronunciation-harness session.
+- `RIME_SAVE_OOVS=true` — log Rime's out-of-vocabulary words for a pronunciation-harness session (diagnostic, off in production). `RIME_BASE_URL` switches the Rime WebSocket region (US West default / US East).
 - `LAYOUT_DIRECTION` (`RIGHT` | `DOWN`) · `COMPONENT_LOOKUP=fixture` (skip the network for `explainComponent` on stage).
 
 ### Benchmark
@@ -136,13 +131,36 @@ The aesthetic layer copies component source (not a runtime dependency) from:
 - Live interruption/recovery latency is **measured across two independent real sessions** — fence ~2.5s median / 4.3-4.6s p95, recovery ~3.7-4.0s median / 6.2-7.3s p95, medians agreeing within ~1% between runs. Recovery latency (LLM + TTS round-trip) is slower than we'd like and is a live optimization target, not something tuned away before reporting. Full tables and disclosed caveats in `apps/agent/src/bench/live-latency.md`.
 - **"Queued Rime audio stops promptly" is measured directly**, not assumed from the architecture: correlating `generation_cancelled` with the LiveKit SDK's own playout-stopped confirmation gives median 13ms / p95 25ms / max 138ms (n=7 — only turns where the agent was genuinely mid-speech at cancellation). See `RIME_EVIDENCE.md` §4.
 - Single-room scale; no multi-agent handoffs, no telephony.
-- **Multilingual (`RIME_MULTILINGUAL=true`) is degraded for non-English and only `eng`+`hin` are tested.** The §0 spike (recorded in `RIME_EVIDENCE.md §4a`) found Coda emits word-level timestamps only for English — synthesised Hindi and Japanese returned audio but zero timed words. So a non-English turn loses the per-sentence commit gate and falls back to `onTurnComplete` granularity (an interruption drops everything pending). The HUD shows `degraded timing`. English keeps the full gate. The other 7 Coda languages are mapped in `voices.ts` but their voices and segmentation are untested. It is not a translation feature — the agent replies in the room's language, it never translates.
+- **English only** — a multilingual mode was built and then removed on evidence. Rime Coda emits the per-sentence delivery signal the commit gate needs *only* for English (the §0 spike: 17 timed words in English, 0 in Hindi and Japanese). Shipping the guarantee degraded for every other language was judged worse than scoping out. The STT runs `language: 'en'`. Full spike and reasoning in [`RIME_EVIDENCE.md §4a`](RIME_EVIDENCE.md).
 - **Ambient meeting mode (§2) is behind `ADDRESSIVITY=true` and unvalidated live.** The classifier (prefilter + optional model), the ghost/proposal store, the safety invariant, and scenarios 47/48 are all unit-tested and audio-independent. The one piece that needs a two-browser-tab check is the multi-participant STT subscription in `core/ambient-listener.ts` — LiveKit Agents 1.7.1 binds `AgentSession` to a single participant, so a second engineer needs a separate STT stream off the raw track, and that plumbing has not been exercised with real audio. Measured classifier F1 (synthetic fixture): salient 0.92, addressed precision 1.0 / recall 0.30 — the prefilter never false-triggers the agent into speaking; recall is the model layer's job.
 - Ghost labels are extracted from the overheard utterance heuristically (`ghostLabelFrom` in `main.ts`), not by a planner pass — cheaper for frequent ambient chatter, at the cost of occasionally awkward proposal names. A proposal is low-stakes by design.
 - **This submission does not claim multi-user collaboration.** Cartograph is presented as a single-operator tool — one person, thinking out loud. `publishData` broadcasts to every room participant, so a second viewer would likely see the same canvas, but that's untested and nothing in the pitch depends on it.
 - A real reliability bug was found and fixed during validation: tools referencing an *existing* component (`connectServices`, `renameComponent`, `removeComponent`, `replaceComponent`, `groupComponents`) used to hash whatever label the LLM said directly into a node id. A natural paraphrase — "connect the gateway to the auth service" for a node actually added as "API Gateway," or "the database" for one named "Postgres" — produced a dangling reference: the mutation staged and reported success, but nothing rendered. `CanvasStore.resolveId` now resolves spoken labels against the real canvas (exact id → case-insensitive label → unambiguous substring → generic kind-noun when there's exactly one match → token overlap), falling back to the old behaviour only when nothing resolves unambiguously. Regression-tested against the exact failing transcripts observed live.
 - `apps/web`'s text-chat input is not wired to trigger agent turns in this starter — voice is the only input path exercised end-to-end.
 - `apps/web`'s ESLint config (`next lint` + `.eslintrc.json`) is incompatible with the installed ESLint 9 and errors out; `pnpm --filter web check-types` is clean. Pre-existing; a flat-config migration is out of scope here.
+
+## Submission checklist (configuration hygiene — PS p.2 / p.5, pass/fail)
+
+**Config example hygiene** — audited on `final`: the only committed `.env*` files are `apps/agent/.env.example` and `apps/web/.env.example`, every secret value in them is empty, `RIME_API_KEY` is referenced server-side only, and no `NEXT_PUBLIC_*` variable carries a credential. `.env.local` is gitignored in both apps. Keep it so: never a real value in an `.env.example`, never a credential behind `NEXT_PUBLIC_*`.
+
+**Before submitting — re-verify the Rime config against the live catalog** (PS p.5: *"use the current catalog at submission time rather than copying a stale speaker list"*). The shipped model/voice/language is a committed default (`RIME_MODEL` / `RIME_VOICE` in `.env.example`, `LANG` in `src/tts.ts`):
+
+```bash
+pnpm --filter DD_agent test tts.preflight
+```
+
+Skips (does not fail) when offline, so it is safe in `pnpm test` — run it deliberately before the deadline. Last verified: 2026-09-08 — `coda` / `celeste` / `eng` present.
+
+**Before recording the demo — a human must scan the screen for secrets** (PS p.5 covers *"screenshots, recordings"*; a repo scan can't catch this):
+
+- [ ] No terminal on screen has printed env vars (`env`, `printenv`, a startup log echoing config)
+- [ ] No editor tab or file tree shows `.env.local` open or its contents
+- [ ] The agent worker's boot lines on screen carry no key
+- [ ] Browser devtools, if visible, show no `Authorization` request headers
+- [ ] The HUD shows only the provider description (`Rime coda:celeste (WebSocket, PCM 24kHz mono, us-west-2)`), no key material
+- [ ] After recording: scrub through once at speed watching for key-shaped text
+
+If a key appears in a take, **re-record — do not blur it.** A blur in a video file is not always a removal and the underlying frames may survive re-encoding.
 
 ## Failure behaviour
 
