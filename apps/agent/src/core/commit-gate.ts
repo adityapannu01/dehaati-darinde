@@ -163,6 +163,26 @@ export class CommitGate {
   }
 
   /**
+   * Labels of nodes staged (added or renamed) but not yet committed for
+   * `generation`. A same-turn `connectServices` / `groupComponents` passes this
+   * to `CanvasStore.resolveId` so it can resolve a name the committed canvas
+   * doesn't carry yet — the LLM stages `renameComponent(A -> B)` then
+   * `connectServices(B -> C)` all the time, and without this the edge points at
+   * a slug no node has and never renders.
+   */
+  pendingNodeLabels(generation: number): { id: string; label: string }[] {
+    const out: { id: string; label: string }[] = [];
+    for (const staged of this.staging.pendingFor(generation)) {
+      const m = staged.mutation;
+      if (m.op === 'addNode') out.push({ id: m.node.id, label: m.node.label });
+      else if (m.op === 'renameNode' || m.op === 'replaceNode') {
+        out.push({ id: m.nodeId, label: m.label });
+      }
+    }
+    return out;
+  }
+
+  /**
    * Feed a chunk off the TTS-input tap (see canvas-agent.ts's ttsNode override).
    * `generation` is captured when the tts stream opened, so a late chunk from a
    * superseded turn resets rather than corrupts the new turn's buffer.

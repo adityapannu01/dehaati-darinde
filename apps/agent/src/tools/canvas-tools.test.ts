@@ -40,6 +40,7 @@ function setup(slowMs = 20) {
     published,
     addService: pick('addService'),
     connectServices: pick('connectServices'),
+    renameComponent: pick('renameComponent'),
     clearCanvas: pick('clearCanvas'),
     describeArchitecture: pick('describeArchitecture'),
     undoLast: pick('undoLast'),
@@ -182,6 +183,33 @@ describe('canvas tools fencing contract', () => {
     const edge = staging.pendingFor(g1.id)[0]?.mutation as { edge: { source: string; target: string } };
     expect(edge.edge.source).toBe('api-gateway');
     expect(edge.edge.target).toBe('auth-service');
+  });
+
+  it('a same-turn renameComponent then connectServices produces a real edge, not a dangling one — the observed live bug', async () => {
+    const { gm, canvas, staging, renameComponent, connectServices } = setup(1);
+    const sig = new AbortController().signal;
+    const g1 = gm.start('rename and connect');
+
+    canvas.apply({ op: 'addNode', node: { id: 'web-app', label: 'Web App', kind: 'service', x: 0, y: 0 } });
+    canvas.apply({ op: 'addNode', node: { id: 'api-gateway', label: 'API Gateway', kind: 'gateway', x: 0, y: 0 } });
+
+    // Live transcript: "The React frontend hits an API gateway." — the LLM
+    // stages a rename of the node it drew as "Web App", then connects the new
+    // name, all before either lands on the canvas.
+    await callExecute(renameComponent, { targetLabel: 'Web App', newLabel: 'React Frontend' }, { abortSignal: sig });
+    await callExecute(
+      connectServices,
+      { sourceLabel: 'React Frontend', targetLabel: 'API Gateway' },
+      { abortSignal: sig },
+    );
+
+    const edge = staging.pendingFor(g1.id).find((s) => s.mutation.op === 'addEdge')?.mutation as {
+      edge: { source: string; target: string };
+    };
+    // Before the fix: edge.source was slug("React Frontend") = "react-frontend",
+    // which no node has (the rename keeps the id "web-app"), so the line never rendered.
+    expect(edge.edge.source).toBe('web-app');
+    expect(edge.edge.target).toBe('api-gateway');
   });
 
   it('resolves "the database" to the sole datastore even with zero textual overlap with its real label', async () => {
