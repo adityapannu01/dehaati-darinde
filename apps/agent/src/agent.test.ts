@@ -155,4 +155,53 @@ describe('agent evaluation', () => {
       );
     },
   );
+
+  /**
+   * Live behaviour observed 2026-09-08: user said "Add a Redis cache," was
+   * interrupted before the agent ever replied (SLOW_TOOL_MS made the tool call
+   * still be asleep), then said "wait, make that Memcached." The commit gate
+   * fenced correctly — gen 2's tool call resolved STALE_DISCARDED, nothing
+   * wrong ever committed — but gen 3's reply still narrated "Okay, adding a
+   * Redis cache" before "replacing it with Memcached," so Redis cache flashed
+   * on the canvas before being replaced. Nothing was ever technically wrong
+   * (the mismatch guard never fires, no divergence), but it's a real, visible
+   * "showed the user something they already corrected" defect the persona
+   * didn't previously guard against — added guidance in agent.ts's PERSONA.
+   *
+   * This tests the same shape with a single self-correcting utterance rather
+   * than two harness-orchestrated turns, since that's simpler to make
+   * deterministic and is an equally common real trigger for the same rule.
+   */
+  it(
+    'a self-correction before any reply skips the superseded step — no tool call, no mention',
+    { timeout: 30000, retry: 2 },
+    async () => {
+      const result = await session
+        .run({ userInput: 'Add a Redis cache. Wait, actually make that Memcached instead.' })
+        .wait();
+
+      const functionCalls = result.events.filter((e) => e.type === 'function_call');
+      const addServiceLabels = functionCalls
+        .filter((e) => e.item.name === 'addService')
+        .map((e) => (JSON.parse(e.item.args) as { label: string }).label.toLowerCase());
+      const replaceCalls = functionCalls.filter((e) => e.item.name === 'replaceComponent');
+
+      // Redis was never actually added — the correction arrived before any
+      // reply — so the model should add Memcached directly: never call
+      // addService for Redis, never call replaceComponent on something that
+      // was never added.
+      expect(addServiceLabels.some((l) => l.includes('redis'))).toBe(false);
+      expect(replaceCalls).toHaveLength(0);
+      expect(addServiceLabels.some((l) => l.includes('memcached'))).toBe(true);
+
+      // And the superseded name must never be spoken, not even once.
+      const spokenText = result.events
+        .filter((e) => e.type === 'message' && e.item.role === 'assistant')
+        .flatMap((e) => (e as { item: { content: unknown[] } }).item.content)
+        .filter((c): c is string => typeof c === 'string')
+        .join(' ')
+        .toLowerCase();
+      expect(spokenText).not.toContain('redis');
+    },
+  );
 });
