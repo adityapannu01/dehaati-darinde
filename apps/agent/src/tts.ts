@@ -11,12 +11,6 @@ export interface TTSSelection {
   hasWordTimestamps: boolean;
   /** Shown in the UI: the active speech provider must be observable, not just documented. */
   describe: string;
-  /**
-   * Swap the Rime speaker + language for the next synthesis (§2.4). Only the
-   * direct Coda plugin can do this; undefined on the other paths, which also
-   * means multilingual is a no-op there. Call between turns, never mid-utterance.
-   */
-  updateLanguage?: (lang3: string, speaker: string) => void;
 }
 
 function env(name: string, fallback: string): string {
@@ -109,7 +103,6 @@ export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTS
         supportsExpressive: false,
         hasWordTimestamps: true,
         describe: `Rime ${model}:${voice} (WebSocket, PCM 24kHz mono)`,
-        updateLanguage: (lang3, speaker) => rimeTts.updateOptions({ lang: lang3, speaker }),
       };
     }
 

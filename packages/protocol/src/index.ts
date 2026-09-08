@@ -105,9 +105,6 @@ export type LedgerEventType =
   | 'proposal_promoted'
   | 'proposal_rejected'
   | 'proposal_expired'
-  /** RIME_MULTILINGUAL=true only — see apps/agent/src/core/language-router.ts. */
-  | 'language_switched'
-  | 'language_unsupported'
   /** ROUND3 A1 — the diagram's flow direction changed (narrated, gated, undoable). */
   | 'direction_changed';
 
@@ -197,11 +194,6 @@ export type ServerMessage =
       /** §2: ambient meeting mode state, when ADDRESSIVITY is on. */
       addressivity?:
         | { enabled: true; threshold: number; ghostCount: number }
-        | { enabled: false }
-        | undefined;
-      /** Multilingual state, when RIME_MULTILINGUAL is on. `degradedTiming` = no per-sentence commit gate for this language. */
-      language?:
-        | { enabled: true; code: string; name: string; speaker: string; degradedTiming: boolean }
         | { enabled: false }
         | undefined;
     };

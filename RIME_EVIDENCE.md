@@ -91,11 +91,13 @@ The one case still not caught live, specifically, is a mutation that reaches `mu
 
 Rime pronunciation: 44 infrastructure terms rendered through the shipped `coda:celeste` WebSocket path in three variants each (plain / hand-respelled / **the shipped `applyLexicon` output**) — clips + comparison table in `apps/agent/src/bench/pronunciation/REPORT.md`. `RIME_SAVE_OOVS=true` logs Rime's out-of-vocabulary words for a real session.
 
-`pnpm test` (~267 tests across core engine, tools, commit gate, transport, benchmark, planner/graph, layout (incl. the four-direction regression fixture), turn-taking, addressivity/proposals/ambient, language router, lexicon, the real slow tool, and the agent evals): **all passing** as of this commit.
+`pnpm test` (~250 tests across core engine, tools, commit gate, transport, benchmark, planner/graph, layout (incl. the four-direction regression fixture), turn-taking, addressivity/proposals/ambient, lexicon, the real slow tool, and the agent evals): **all passing** as of this commit (the agent evals need live LiveKit Inference).
 
-## 4a. Multilingual & pronunciation (MULTILINGUAL_AND_PRONUNCIATION.md)
+## 4a. Language scope & pronunciation (MULTILINGUAL_AND_PRONUNCIATION.md)
 
-**§0 gate spike (recorded, not committed as code).** Synthesised 3-sentence strings through the shipped Coda WebSocket plugin in English, Hindi (`nadi`) and Japanese (`akatsuki`), logging every aligned word:
+**The product is English-only, and that is a decision informed by two Rime spikes — not a shortcut.** A multilingual mode (per-turn language detection, a hysteresis'd speaker/`lang` router, a Coda speaker per language) was built against `MULTILINGUAL_AND_PRONUNCIATION.md` and then **removed**, because the commit gate — the entire thesis of this project — cannot hold at full granularity for non-English on Coda, and shipping a headline guarantee that is degraded for most of its languages is worse than not shipping the languages. The spikes below are kept because they are exactly the kind of specific provider knowledge the PS asks for.
+
+**Spike 1 — the §0 word-timestamp gate spike.** Synthesised 3-sentence strings through the shipped Coda WebSocket plugin in English, Hindi (`nadi`) and Japanese (`akatsuki`), logging every aligned word:
 
 | Language | audio frames | words with `startTime`/`endTime` |
 |---|--:|--:|
@@ -103,42 +105,20 @@ Rime pronunciation: 44 infrastructure terms rendered through the shipped `coda:c
 | Hindi (`hin` / nadi) | 92 | **0** |
 | Japanese (`jpn` / akatsuki) | 96 | **0** |
 
-**Rime Coda returns word-level timestamps only for English.** Non-English audio synthesises fine, but the commit gate has no per-sentence delivery signal. Per the plan's §2.7, multilingual therefore ships in **degraded mode** for non-English: mutations commit on `onTurnComplete` (turn granularity) rather than per sentence, and an interruption drops everything still pending. The HUD shows `degraded timing` when a non-English voice is active. English keeps the full per-sentence gate.
+**Rime Coda returns word-level timestamps only for English.** Non-English audio synthesises fine, but the commit gate — which commits a staged mutation only once the sentence describing it is *confirmed delivered* — has no per-sentence delivery signal to key off.
 
-**Disclosure matrix** (PS p.2 — exact model/speaker/lang/transport, now a matrix):
-
-| Language | Rime model | Speaker | `lang` | Word timestamps | Commit gate | Tested |
-|---|---|---|---|---|---|---|
-| English | coda | celeste | eng | **yes** (17/17 verified) | per-sentence | **yes** |
-| Hindi | coda | nadi | hin | no (0 verified) | degraded (onTurnComplete) | **yes** |
-| Spanish | coda | brisa | spa | not verified | degraded | no |
-| French | coda | aurelie | fra | not verified | degraded | no |
-| German | coda | lorelei | ger | not verified | degraded | no |
-| Italian | coda | livia | ita | not verified | degraded | no |
-| Japanese | coda | akatsuki | jpn | no (0 verified) | degraded | no |
-| Portuguese | coda | estela | por | not verified | degraded | no |
-| Arabic | coda | layla | ara | not verified | degraded | no |
-
-Endpoint `wss://users-ws.rime.ai/ws3?...` · PCM 24 kHz mono · WebSocket, all languages. Speakers picked for demographic continuity with `celeste` (Female / Young Adult) where a match exists — see `apps/agent/src/voices.ts`. **This trades against a persistent voice identity: no Coda voice crosses languages, so the agent audibly becomes a different person on a switch. Matched demographics soften it; they don't remove it.**
-
-Code-switching: `universal-3-5-pro` *understands* mixed-language input natively; the agent *replies* in the dominant language of the turn, technical nouns in Latin script. It cannot speak a mixed-language reply — one Rime request binds one speaker to one language.
-
-**Pronunciation.** Coda has no inline phonemes (Mist v2 only, and Mist v2 has no word timestamps), so respelling the text sent to Rime is the only lever. The lexicon (`core/lexicon.ts`) is applied at the `ttsNode` tap — after the model produces correct text, before Rime — buffered to sentence boundaries so a term can't split across a chunk. Both sides of the commit gate's anchor check are normalised through the same lexicon, so a respelled term never trips `anchor_mismatch` (regression-tested). The STT gets the same term list via `keyterms_prompt` so recognition biases toward "nginx"/"etcd" too.
-
-### Round 3 — a second delivery signal for non-English, investigated and ruled out (ROUND3 B1)
-
-`ROUND3_LAYOUT_AND_VOICE.md` B1 proposed recovering a per-sentence commit gate for non-English from a *different* signal in the Rime plugin: the per-segment boundary frame (`sendLastFrame(segmentId, final)`) that `SynthesizeStream` emits on a separate code path from the English-only `"timestamps"` message. If Rime, constructed with `segment: 'bySentence'` (the plugin default), emitted one boundary per sentence in every language, that boundary would be exactly the evidence the gate needs.
-
-**Spiked it first, per the plan's own stop condition ("If boundaries do not arrive per sentence, stop and keep the documented degraded mode"). It failed.** A fresh WebSocket spike (`_spike_segments.mjs`, run against the live `wss://users-ws.rime.ai/ws3` endpoint, not committed) synthesised the same 3-sentence strings and counted every message type:
+**Spike 2 — is there a second delivery signal?** The Rime plugin's `SynthesizeStream` emits a per-segment boundary frame (`sendLastFrame(segmentId, final)`) on a code path separate from the English-only `"timestamps"` message. If Rime, constructed with `segment: 'bySentence'` (the plugin default), emitted one boundary *per sentence* in every language, that would be exactly the evidence the gate needs. A fresh WebSocket spike (`_spike_segments.mjs`, run against the live `wss://users-ws.rime.ai/ws3` endpoint, not committed) counted every message type:
 
 | Language | `chunk` (audio) | `timestamps` | `done` |
 |---|--:|--:|--:|
 | English (`eng` / celeste) | 451 | **2** | **1** |
 | Hindi (`hin` / nadi) | 487 | **0** | **1** |
 
-Rime `ws3` sends exactly **one `done` per whole stream**, not one per sentence — and in the plugin, `sendLastFrame(contextId, /* final */ true)` fires only on that single `done`, with `contextId` a stream-level uuid, not a sentence id. The intermediate `sendLastFrame(contextId, false)` calls are audio-frame flushes keyed to `chunk` arrival, not sentence boundaries. There is no per-sentence delivery frame to read. Hindi still returns 0 `timestamps` messages, confirming §0.
+Rime `ws3` sends exactly **one `done` per whole stream**, not one per sentence — and in the plugin, `sendLastFrame(contextId, /* final */ true)` fires only on that single `done`, with `contextId` a stream-level uuid, not a sentence id. The intermediate `sendLastFrame(contextId, false)` calls are audio-frame flushes keyed to `chunk` arrival, not sentence boundaries. **There is no per-sentence delivery frame in any language.** Estimating sentence boundaries from `chunk` counts and audio duration would be an inference dressed as delivery evidence — the one thing this project exists to refuse.
 
-Per ROUND3 design decision 5, the honest degraded mode stays: estimating sentence boundaries from `chunk` counts and audio duration would be an inference dressed as delivery evidence, which is the one thing this project exists to refuse. **The §4a matrix below is unchanged** — non-English commits on `onTurnComplete`, an interruption drops everything pending, the HUD shows `degraded timing`. The spike hardens the disclosure (a second independent check of the same limitation) rather than lifting it.
+So the product scopes to English: `celeste` on Coda, `wss://users-ws.rime.ai/ws3`, PCM 24 kHz mono, WebSocket, word timestamps verified live (17/17). The STT runs `language: 'en'`. `RIME_MODEL` / `RIME_VOICE` / `RIME_LANGUAGE` still exist for a deploy-time override but the tested and demoed path is English.
+
+**Pronunciation stays — it is on-thesis for English.** If the user heard "en-jinx" and the node reads "nginx", the state matches the transcript but not their understanding. Coda has no inline phonemes (Mist v2 only, and Mist v2 has no word timestamps), so respelling the text sent to Rime is the only lever. The lexicon (`core/lexicon.ts`) is applied at the `ttsNode` tap — after the model produces correct text, before Rime — buffered to sentence boundaries so a term can't split across a chunk. Both sides of the commit gate's anchor check are normalised through the same lexicon, so a respelled term never trips `anchor_mismatch` (regression-tested). The STT gets the same term list via `keyterms_prompt` so recognition biases toward "nginx"/"etcd" too.
 
 ## 5. Limitations
 
@@ -148,7 +128,7 @@ Per ROUND3 design decision 5, the honest degraded mode stays: estimating sentenc
 - With a slow tool, a mutation commits when the tool completes (the catch-up path), not at the instant its sentence ends — heard-correct, but not visually instantaneous. `SLOW_TOOL_MS` defaults to `0` outside the interruption stress demo so the two coincide.
 - 51 generated scenarios + 1 hand-scripted out-of-order case are not a production traffic distribution — they exercise the specific race the commit gate closes, not general robustness. The generator matrix is parametric (`apps/agent/src/bench/scenarios.ts`) rather than 100 hand-authored scripts, trading raw scenario count for higher confidence that each generated case is actually correct.
 - Single-room scale; no multi-agent handoffs or telephony.
-- Multilingual (`RIME_MULTILINGUAL=true`): non-English runs in degraded commit mode (see §4a — Coda gives no non-English word timestamps, and a ROUND3 spike confirmed Rime `ws3` has no per-sentence delivery frame to fall back on either). `eng` + `hin` tested; the other 7 Coda languages configured but unverified. Not a translation feature — the agent replies in the room's language, it does not translate.
+- English only (see §4a): two Rime spikes established that Coda emits the per-sentence delivery evidence the commit gate needs only for English, so the multilingual mode that was built for `MULTILINGUAL_AND_PRONUNCIATION.md` was removed rather than shipped in a degraded state. The STT runs `language: 'en'`.
 - Live interruption/recovery latency is measured — see §4 and `live-latency.md`. Recovery latency (~4s median) is slower than ideal; not yet tuned.
 - A real reliability bug was found and fixed during this round of testing: `connectServices`/`renameComponent`/`removeComponent`/`replaceComponent`/`groupComponents` used to hash whatever label the LLM said directly into a node id, so a natural paraphrase ("connect the gateway to the auth service" for a node actually added as "API Gateway") produced a dangling reference — the mutation staged and "succeeded" but nothing rendered, silently. `CanvasStore.resolveId` now resolves spoken labels against the actual canvas (exact → case-insensitive → substring → generic-kind-noun → token overlap), falling back to the old behaviour only when nothing matches unambiguously. Regression-tested against the exact failing transcripts.
 - Ambient meeting mode (`ADDRESSIVITY=true`) is unvalidated with two live browser tabs — the classifier, proposal store and safety invariant (scenarios 47/48) are unit-tested and audio-independent, but the multi-participant STT subscription has not run against real audio. Classifier F1 on the synthetic fixture: salient 0.92, addressed precision 1.0 / recall 0.30.
@@ -164,5 +144,5 @@ Not code — rehearse against it before presenting.
 | 0:30-1:20 | Normal flow: speak three services, watch them land sentence by sentence as Rime speaks them. |
 | 1:20-2:30 | **Stress case.** `SLOW_TOOL_MS=5000`. Say "add a Redis cache and connect it to the API gateway," interrupt on the second sentence with "wait, make that MongoDB." Show: audio cuts, the un-narrated edge never appears, the event ledger turns red, the 5-second-late tool result arrives and is rejected. |
 | 2:30-3:10 | Same script with `CARTOGRAPH_BASELINE=true` — the ghost node/edge appears. Side by side against the fenced run. |
-| 3:10-3:40 | Numbers on screen, not a slide: `pnpm --filter DD_agent benchmark` (0% divergence vs 81% baseline) and the measured live-latency table (two independent runs, medians agreeing within ~1%). |
+| 3:10-3:40 | Numbers on screen, not a slide: `pnpm --filter DD_agent benchmark` (0% divergence vs ~77% baseline) and the measured live-latency table (two independent runs, medians agreeing within ~1%). |
 | 3:40-4:20 | Rime's role: WebSocket streaming, word timestamps, and the fact that they're what drives the commit gate. Show the disclosure table in `README.md`. |

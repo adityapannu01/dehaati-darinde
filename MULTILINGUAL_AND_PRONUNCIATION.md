@@ -1,5 +1,13 @@
 # Cartograph — Multilingual & Pronunciation Implementation Plan
 
+> **Outcome (post-implementation):** the **pronunciation** half shipped and stays — it is
+> on-thesis for English (see `RIME_EVIDENCE.md §4a`). The **multilingual** half was built and
+> then **removed**: the §0 spike below fired (Coda gives word-level delivery evidence only for
+> English), a follow-up `ws3` spike confirmed there is no per-sentence delivery frame in any
+> language, and shipping the product's core commit-gate guarantee in a degraded state for most
+> of its languages was judged worse than scoping to English. This document is kept as the
+> record of what was investigated and why. The two spikes are preserved in `RIME_EVIDENCE.md §4a`.
+
 **Companion to** `TECHNICAL_REVIEW.md`. Covers two PS directions:
 *Pronunciation and controlled delivery* and *Multilingual and code-switched speech* (PS p.3).
 
