@@ -447,6 +447,22 @@ export default defineAgent({
         ledger.push('speech_started', gm.currentId, `backchannel ignored: "${ev.transcript}"`);
         return;
       }
+      // A generation that spoke literally zero words before being superseded
+      // (cut off before the agent said anything at all) never gets a
+      // ConversationItemAdded from the SDK — it only inserts a chat message
+      // when some text was actually forwarded. Without this, its staged
+      // mutations (if a tool call resolved fast enough to stage one) never
+      // reach a terminal state: a real orphan, invisible on the canvas but a
+      // genuine violation of "every staged mutation resolves" (live-observed
+      // 2026-09-08). Resolve it here instead of waiting for an event that will
+      // never come. Safe unconditionally: zero spoken words can only mean "cut
+      // off before speaking," never "completed normally" — that requires
+      // having actually said the reply — so there's no ambiguity the way
+      // there would be if some words had been delivered (that case is already
+      // handled correctly by ConversationItemAdded below).
+      if (commitGate.spokenText.trim() === '') {
+        commitGate.onInterrupted(gm.currentId);
+      }
       pendingInterruptGeneration = gm.currentId;
       gm.cancelCurrent();
       // Live latency measurement (see bench/live-latency.md): interruption -> fenced.

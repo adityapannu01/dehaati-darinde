@@ -245,6 +245,29 @@ describe('CommitGate', () => {
     expect(gate.orphanedMutationIds).toEqual([]);
   });
 
+  /**
+   * Live-observed 2026-09-08: a correction arrived so fast that the previous
+   * generation never spoke a single word before being superseded. The SDK
+   * only emits ConversationItemAdded (which is what normally drives
+   * onInterrupted) when some text was actually forwarded — with zero words
+   * ever delivered, that event never fires, so main.ts now calls
+   * onInterrupted eagerly itself as soon as it sees `spokenText` is empty,
+   * rather than waiting for an event that will never come. This is the
+   * CommitGate-level half of that fix: onInterrupted must still resolve
+   * cleanly — not just when interrupted mid-sentence (the test above), but
+   * when NO word was ever delivered for the generation at all.
+   */
+  it('a generation interrupted before it ever spoke a word still resolves cleanly, not as an orphan', () => {
+    const { gate } = build();
+    gate.startGeneration();
+    gate.stage(1, 0, 'Redis cache', addNode('redis', 'Redis cache'));
+
+    // No onWord calls at all — the generation never spoke anything.
+    gate.onInterrupted(1);
+
+    expect(gate.orphanedMutationIds).toEqual([]);
+  });
+
   it('unfence() reverses a seal so the generation can stage and commit again', () => {
     const { canvas, gate } = build();
     gate.startGeneration();
