@@ -21,10 +21,12 @@ Reported but not the headline claim: perceived response time (see [`apps/agent/s
 | Model ID | `coda` |
 | Speaker / `lang` | `celeste` / `eng` — **English only** (see below) |
 | Endpoint | `wss://users-ws.rime.ai/ws3?...` (WebSocket streaming) |
+| Region | `us-west-2` (US West). Configurable via `RIME_BASE_URL`; the only other Rime WebSocket endpoint is `wss://users-east-ws.rime.ai` (US East, `us-east-1`). **Rime publishes no APAC region**, so synthesis from our location (India) is transpacific either way — this sits under the recovery-latency numbers in `RIME_EVIDENCE.md`. |
 | Transport | Browser ↔ LiveKit WebRTC room ↔ agent worker ↔ Rime WebSocket |
 | Audio format | PCM, 24 000 Hz, mono |
 | Word timestamps | **yes** (verified live) — this is what drives the commit gate |
 | Auth | `RIME_API_KEY`, server-side only (`apps/agent/.env.local`), never in `apps/web` |
+| Catalog freshness | `pnpm --filter DD_agent test voices.live` re-checks `coda`/`celeste`/`eng` against Rime's live catalog before submitting (PS p.5) |
 
 **Why the plugin and not the Inference gateway:** the gateway's `RimeOptions` exposes no timestamp flag, so it never emits aligned word timings — and without those, the commit gate (the whole point of this project) has no signal to key off. The gateway path is kept in `apps/agent/src/tts.ts` as a disclosed, observable fallback (`TTS_PROVIDER=rime`): it works, but degrades commit granularity from per-sentence to per-turn since there's no word-level delivery evidence. `TTS_PROVIDER=fishaudio` is the pre-Rime baseline, kept only as a rollback path.
 
@@ -136,6 +138,29 @@ The aesthetic layer copies component source (not a runtime dependency) from:
 - A real reliability bug was found and fixed during validation: tools referencing an *existing* component (`connectServices`, `renameComponent`, `removeComponent`, `replaceComponent`, `groupComponents`) used to hash whatever label the LLM said directly into a node id. A natural paraphrase — "connect the gateway to the auth service" for a node actually added as "API Gateway," or "the database" for one named "Postgres" — produced a dangling reference: the mutation staged and reported success, but nothing rendered. `CanvasStore.resolveId` now resolves spoken labels against the real canvas (exact id → case-insensitive label → unambiguous substring → generic kind-noun when there's exactly one match → token overlap), falling back to the old behaviour only when nothing resolves unambiguously. Regression-tested against the exact failing transcripts observed live.
 - `apps/web`'s text-chat input is not wired to trigger agent turns in this starter — voice is the only input path exercised end-to-end.
 - `apps/web`'s ESLint config (`next lint` + `.eslintrc.json`) is incompatible with the installed ESLint 9 and errors out; `pnpm --filter web check-types` and `pnpm --filter web build` (webpack compile + static generation of all routes, `/preview` included) are both clean. Pre-existing ESLint breakage; a flat-config migration is out of scope here.
+
+## Submission checklist (configuration hygiene — PS p.2/p.5, pass/fail)
+
+**Config example hygiene** — audited at `7c8a455` and re-checked here: the only committed `.env*` files are `apps/agent/.env.example` and `apps/web/.env.example`, every secret value in them is empty, `RIME_API_KEY` is referenced server-side only, and no `NEXT_PUBLIC_*` variable carries a credential. `.env.local` is gitignored in both apps. Keep it that way: never put a real value in an `.env.example`, never move a credential behind `NEXT_PUBLIC_*`.
+
+**Before submitting — re-verify the Rime config against the live catalog** (PS p.5: *"use the current catalog at submission time rather than copying a stale speaker list"*). The shipped model/voice/language lives in one place, `RIME_DEFAULTS` in `apps/agent/src/tts.ts`, and this checks it against `https://users.rime.ai/data/voices/all-v2.json`:
+
+```bash
+pnpm --filter DD_agent test tts.live
+```
+
+It skips (does not fail) when offline, so it is safe in `pnpm test` — but run it deliberately before the deadline. Last verified: 2026-09-08 — `coda` / `celeste` / `eng` present.
+
+**Before recording the demo — a human must scan the screen for secrets** (PS p.5 covers *"screenshots, recordings"*; a repo scan can't catch this):
+
+- [ ] No terminal on screen has printed env vars (`env`, `printenv`, a startup log echoing config)
+- [ ] No editor tab or file tree shows `.env.local` open or its contents
+- [ ] The agent worker's boot lines on screen carry no key
+- [ ] Browser devtools, if visible, show no `Authorization` request headers
+- [ ] The HUD shows only the provider description (`Rime coda:celeste (WebSocket, PCM 24kHz mono, us-west-2)`), no key material
+- [ ] After recording: scrub through once at speed watching for key-shaped text
+
+If a key appears in a take, **re-record — do not blur it**. A blur in a video file is not always a removal and the underlying frames may survive re-encoding.
 
 ## Failure behaviour
 

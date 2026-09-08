@@ -18,6 +18,21 @@ function env(name: string, fallback: string): string {
   return v === undefined || v === '' ? fallback : v;
 }
 
+/**
+ * The shipped Rime configuration — model, voice, language, region. This is the
+ * combination the event preflight validates against Rime's live catalog
+ * (PS p.5), so it is a single exported constant that `createTTS` reads and
+ * `tts.live.test.ts` checks. Override any of them via the matching env var
+ * for a deploy; the tested and demoed path is these defaults.
+ */
+export const RIME_DEFAULTS = {
+  model: 'coda',
+  voice: 'celeste',
+  language: 'eng',
+  /** US West (us-west-2). US East is `wss://users-east-ws.rime.ai`; Rime has no APAC region. */
+  baseURL: 'wss://users-ws.rime.ai',
+} as const;
+
 export function resolveTTSProvider(): TTSProviderName {
   const raw = env('TTS_PROVIDER', 'rime-plugin').toLowerCase();
   if (raw === 'rime-plugin' || raw === 'rime' || raw === 'fishaudio') return raw;
@@ -60,10 +75,20 @@ function rimePluginSpeedOption(model: string): Record<string, number> {
 // gateway wants 2-letter ISO codes. Map the ones the plugin's DefaultLanguages covers.
 const THREE_TO_TWO_LETTER: Record<string, string> = { eng: 'en', spa: 'es', fra: 'fr', ger: 'de' };
 
+/** Human-readable Rime region for the `describe` string / HUD, from the WS origin. */
+function rimeRegion(baseURL: string): string {
+  if (baseURL.includes('users-east-ws')) return 'us-east-1';
+  if (baseURL.includes('users-ws.rime.ai')) return 'us-west-2';
+  return baseURL;
+}
+
 export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTSSelection {
-  const voice = env('RIME_VOICE', 'celeste');
-  const model = env('RIME_MODEL', 'coda');
-  const language3 = env('RIME_LANGUAGE', 'eng');
+  const voice = env('RIME_VOICE', RIME_DEFAULTS.voice);
+  const model = env('RIME_MODEL', RIME_DEFAULTS.model);
+  const language3 = env('RIME_LANGUAGE', RIME_DEFAULTS.language);
+  // Rime WebSocket region (Item 3 / PS p.5 disclosure). The plugin appends
+  // `/ws3?...` itself, so this is the origin only.
+  const baseURL = env('RIME_BASE_URL', RIME_DEFAULTS.baseURL);
 
   switch (provider) {
     case 'rime-plugin': {
@@ -77,6 +102,7 @@ export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTS
         // Pass the key explicitly: the plugin otherwise snapshots
         // process.env.RIME_API_KEY at its own module-load time.
         apiKey,
+        baseURL,
         modelId: model,
         speaker: voice,
         lang: language3,
@@ -102,7 +128,7 @@ export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTS
         tts: rimeTts,
         supportsExpressive: false,
         hasWordTimestamps: true,
-        describe: `Rime ${model}:${voice} (WebSocket, PCM 24kHz mono)`,
+        describe: `Rime ${model}:${voice} (WebSocket, PCM 24kHz mono, ${rimeRegion(baseURL)})`,
       };
     }
 

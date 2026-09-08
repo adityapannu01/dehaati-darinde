@@ -15,6 +15,7 @@ import { initializeLogger } from '@livekit/agents';
 import * as rime from '@livekit/agents-plugin-rime';
 import type { AudioFrame } from '@livekit/rtc-node';
 import { applyLexicon } from '../../core/lexicon.ts';
+import { RIME_DEFAULTS } from '../../tts.ts';
 import { TERMS } from './terms.ts';
 
 initializeLogger({ pretty: false, level: 'warn' });
@@ -84,9 +85,10 @@ async function main(): Promise<void> {
 
   const tts = new rime.TTS({
     apiKey,
-    modelId: 'coda',
-    speaker: 'celeste',
-    lang: 'eng',
+    baseURL: RIME_DEFAULTS.baseURL,
+    modelId: RIME_DEFAULTS.model,
+    speaker: RIME_DEFAULTS.voice,
+    lang: RIME_DEFAULTS.language,
     useWebsocket: true,
     saveOovs: true,
   });
