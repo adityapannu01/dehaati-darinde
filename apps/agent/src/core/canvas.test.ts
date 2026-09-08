@@ -255,6 +255,23 @@ describe('CanvasStore', () => {
       store.apply({ op: 'addNode', node: node('api-gateway', 'API Gateway') });
       expect(store.resolveId('a brand new service')).toBe(slugOf('a brand new service'));
     });
+
+    it('resolves a label that only a same-turn staged rename would create — the dangling-edge bug', () => {
+      const store = new CanvasStore();
+      store.apply({ op: 'addNode', node: node('web-app', 'Web App') });
+      store.apply({ op: 'addNode', node: node('api-gateway', 'API Gateway') });
+      // Live log: the LLM staged renameComponent(Web App -> React Frontend) then
+      // connectServices(React Frontend -> API Gateway) in one turn. At connect
+      // time the canvas still calls the node "Web App", so without `pending`
+      // this returns slug("React Frontend") = "react-frontend" and the edge
+      // dangles (its source node id is "web-app", never "react-frontend").
+      const pending = [{ id: 'web-app', label: 'React Frontend' }];
+      expect(store.resolveId('React Frontend', pending)).toBe('web-app');
+      // Committed state still wins over a pending label of the same text.
+      expect(store.resolveId('API Gateway', pending)).toBe('api-gateway');
+      // Without the hint, the old (dangling) behaviour is unchanged.
+      expect(store.resolveId('React Frontend')).toBe('react-frontend');
+    });
   });
 });
 

@@ -101,24 +101,6 @@ export function GenerationHud({ status, className }: GenerationHudProps) {
             </dd>
           </>
         )}
-
-        {status?.language?.enabled && (
-          <>
-            <dt className="text-muted-foreground">language</dt>
-            <dd className="flex items-center gap-1">
-              <span
-                className="inline-block h-2 w-2 rounded-full"
-                style={{
-                  backgroundColor: status.language.degradedTiming
-                    ? 'var(--state-stale)'
-                    : 'var(--state-committed)',
-                }}
-              />
-              {status.language.name} / {status.language.speaker}
-              {status.language.degradedTiming ? ' · degraded timing' : ''}
-            </dd>
-          </>
-        )}
       </dl>
       <div className="text-muted-foreground mt-2 border-t pt-2">
         <div className="mb-1">heard</div>

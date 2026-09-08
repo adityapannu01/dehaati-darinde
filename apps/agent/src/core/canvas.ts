@@ -168,14 +168,24 @@ export class CanvasStore {
    * Falls back to slug(label) — i.e. today's behaviour — when nothing
    * resolves or a match is ambiguous, so a genuinely novel reference fails
    * exactly as before rather than guessing wrong.
+   *
+   * `pending` carries labels of nodes staged (added or renamed) earlier in the
+   * SAME turn but not yet committed — the LLM routinely stages
+   * `renameComponent(A -> B)` then `connectServices(B -> C)`, and without this
+   * the connect resolves "B" against a canvas that still calls the node "A",
+   * falls through to slug("B"), and produces a dangling edge that never
+   * renders. Committed state still wins; `pending` only fills the gap.
    */
-  resolveId(label: string): string {
+  resolveId(label: string, pending: readonly { id: string; label: string }[] = []): string {
     const id = slug(label);
     if (this.nodes.has(id)) return id;
 
     const needle = normalize(label);
     for (const [nodeId, n] of this.nodes) {
       if (normalize(n.label) === needle) return nodeId;
+    }
+    for (const p of pending) {
+      if (normalize(p.label) === needle) return p.id;
     }
 
     const substringMatches = [...this.nodes.entries()].filter(([, n]) => {

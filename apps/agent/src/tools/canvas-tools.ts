@@ -130,9 +130,11 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
       }
       // Resolve against the actual canvas, not a blind slug of whatever the
       // LLM said — see CanvasStore.resolveId for why ("gateway" needs to find
-      // the node labelled "API Gateway").
-      const sourceId = deps.canvas.resolveId(sourceLabel);
-      const targetId = deps.canvas.resolveId(targetLabel);
+      // the node labelled "API Gateway"). `pending` covers a same-turn
+      // renameComponent whose new label the canvas hasn't committed yet.
+      const pending = deps.commitGate.pendingNodeLabels(gen);
+      const sourceId = deps.canvas.resolveId(sourceLabel, pending);
+      const targetId = deps.canvas.resolveId(targetLabel, pending);
       deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), targetLabel, {
         op: 'addEdge',
         edge: {
@@ -175,7 +177,7 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
       }
       deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), newLabel, {
         op: 'replaceNode',
-        nodeId: deps.canvas.resolveId(targetLabel),
+        nodeId: deps.canvas.resolveId(targetLabel, deps.commitGate.pendingNodeLabels(gen)),
         label: newLabel,
         kind: kind as NodeKind,
       });
@@ -204,7 +206,7 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
       }
       deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), newLabel, {
         op: 'renameNode',
-        nodeId: deps.canvas.resolveId(targetLabel),
+        nodeId: deps.canvas.resolveId(targetLabel, deps.commitGate.pendingNodeLabels(gen)),
         label: newLabel,
       });
       return `Staged: rename to ${newLabel} once you have said so.`;
@@ -226,7 +228,7 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
       }
       deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), targetLabel, {
         op: 'removeNode',
-        nodeId: deps.canvas.resolveId(targetLabel),
+        nodeId: deps.canvas.resolveId(targetLabel, deps.commitGate.pendingNodeLabels(gen)),
       });
       return `Staged: removal of ${targetLabel} once you have said so.`;
     },
@@ -254,11 +256,12 @@ export function createCanvasTools(deps: CanvasToolsDeps) {
       const members = Array.isArray(memberLabels)
         ? memberLabels
         : memberLabels.split(/\s*,\s*|\s+and\s+/).filter(Boolean);
+      const pending = deps.commitGate.pendingNodeLabels(gen);
       deps.commitGate.stage(gen, resolveSentenceIndex(gen, sentenceIndex), label, {
         op: 'addGroup',
         id: slug(label),
         label,
-        memberIds: members.map((m) => deps.canvas.resolveId(m)),
+        memberIds: members.map((m) => deps.canvas.resolveId(m, pending)),
       });
       deps.ledger.push('tool_completed', gen, `groupComponents(${label})`);
       return `Staged: a "${label}" boundary around ${members.join(', ')} once you have said so.`;

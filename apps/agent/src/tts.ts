@@ -11,12 +11,6 @@ export interface TTSSelection {
   hasWordTimestamps: boolean;
   /** Shown in the UI: the active speech provider must be observable, not just documented. */
   describe: string;
-  /**
-   * Swap the Rime speaker + language for the next synthesis (§2.4). Only the
-   * direct Coda plugin can do this; undefined on the other paths, which also
-   * means multilingual is a no-op there. Call between turns, never mid-utterance.
-   */
-  updateLanguage?: (lang3: string, speaker: string) => void;
 }
 
 function env(name: string, fallback: string): string {
@@ -62,14 +56,24 @@ function rimePluginSpeedOption(model: string): Record<string, number> {
   return { [key]: value };
 }
 
-// The plugin uses 3-letter codes (RIME_LANGUAGE's native format); the Inference
-// gateway wants 2-letter ISO codes. Map the ones the plugin's DefaultLanguages covers.
-const THREE_TO_TWO_LETTER: Record<string, string> = { eng: 'en', spa: 'es', fra: 'fr', ger: 'de' };
+// English-only product (see RIME_EVIDENCE.md §4a). The Coda WebSocket URL still
+// carries a `lang` parameter, so the plugin must send it — it just never varies.
+const LANG = 'eng';
+
+/** Human-readable Rime region for the `describe` string, from the WS origin (Part 2.3 disclosure). */
+function rimeRegion(baseURL: string): string {
+  if (baseURL.includes('users-east-ws')) return 'us-east-1';
+  if (baseURL.includes('users-ws.rime.ai')) return 'us-west-2';
+  return baseURL;
+}
 
 export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTSSelection {
   const voice = env('RIME_VOICE', 'celeste');
   const model = env('RIME_MODEL', 'coda');
-  const language3 = env('RIME_LANGUAGE', 'eng');
+  // Rime WebSocket region (Part 2.3 / PS p.5). `wss://users-ws.rime.ai` = US West
+  // (us-west-2, default); `wss://users-east-ws.rime.ai` = US East. Rime has no
+  // APAC endpoint. Origin only — the plugin appends `/ws3?...`. Not a secret.
+  const baseURL = env('RIME_BASE_URL', 'wss://users-ws.rime.ai');
 
   switch (provider) {
     case 'rime-plugin': {
@@ -83,9 +87,10 @@ export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTS
         // Pass the key explicitly: the plugin otherwise snapshots
         // process.env.RIME_API_KEY at its own module-load time.
         apiKey,
+        baseURL,
         modelId: model,
         speaker: voice,
-        lang: language3,
+        lang: LANG,
         // REQUIRED: without this, synthesis is non-streaming chunked and
         // alignedTranscript is false — the commit gate has nothing to key off.
         useWebsocket: true,
@@ -108,8 +113,7 @@ export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTS
         tts: rimeTts,
         supportsExpressive: false,
         hasWordTimestamps: true,
-        describe: `Rime ${model}:${voice} (WebSocket, PCM 24kHz mono)`,
-        updateLanguage: (lang3, speaker) => rimeTts.updateOptions({ lang: lang3, speaker }),
+        describe: `Rime ${model}:${voice} (WebSocket, PCM 24kHz mono, ${rimeRegion(baseURL)})`,
       };
     }
 
@@ -119,7 +123,7 @@ export function createTTS(provider: TTSProviderName = resolveTTSProvider()): TTS
         tts: new inference.TTS({
           model: `rime/${model}`,
           voice,
-          language: THREE_TO_TWO_LETTER[language3] ?? language3,
+          language: 'en',
           // RimeOptions: max_tokens | time_scale_factor | speed_alpha |
           // pause_between_brackets | phonemize_between_brackets |
           // inline_speed_alpha | no_text_normalization

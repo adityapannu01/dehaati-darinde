@@ -1,4 +1,4 @@
-// Pronunciation lexicon (MULTILINGUAL_AND_PRONUNCIATION.md §3.2).
+// Pronunciation lexicon — English infra-term respelling (RIME_EVIDENCE.md §4a).
 //
 // Coda has no inline phonemes (Mist v2 only, and Mist v2 has no word
 // timestamps), so RESPELLING the text sent to Rime is the only lever. This
