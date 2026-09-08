@@ -2,9 +2,9 @@
 
 **Voice-Commanded Architecture Canvas · DataForge: Pathway x Rime**
 
-An engineer thinks out loud through a system design — hands free, never breaking flow to touch a mouse. The agent listens, narrates what it is drawing, and the canvas fills in with services and their connections in real time as they talk. They correct themselves mid-sentence constantly, the way anyone does when thinking aloud ("...writes to Redis — no, Memcached") — and the canvas ends up showing **exactly what they actually heard the agent say**, never what it merely intended to say.
+An engineer thinks out loud through a system design — hands free, never breaking flow to touch a mouse. The agent listens, narrates what it is drawing, and the canvas fills in with services and their connections in real time as they talk. Self-corrections mid-sentence are treated as normal, not errors ("...writes to Redis — no, Memcached"): the canvas ends up showing **exactly what the user actually heard the agent say**, never what it merely intended to say.
 
-This README is the disclosure document: what's running, how to reproduce it, and what it can't do yet. The two companion documents are [`TECHNICAL_REVIEW.md`](TECHNICAL_REVIEW.md) (the defect register and design decisions behind the commit gate) and [`RIME_EVIDENCE.md`](RIME_EVIDENCE.md) (the measured results, the acceptance tests, and §4a on why the product is English-only). Earlier planning docs have been removed — they described work that was reworked or scoped out.
+This README covers what's running, how to reproduce it, and its known limitations. [`RIME_EVIDENCE.md`](RIME_EVIDENCE.md) holds the hard-voice-problem claim, acceptance test, procedure, and measured results. [`TECHNICAL_REVIEW.md`](TECHNICAL_REVIEW.md) is the design/decision log behind the commit gate.
 
 ## The claim, in one sentence
 
@@ -19,18 +19,17 @@ Reported but not the headline claim: perceived response time (see [`apps/agent/s
 | Provider | Rime, via the official `@livekit/agents-plugin-rime` — the **direct plugin**, not the LiveKit Inference gateway |
 | Package | `@livekit/agents-plugin-rime@1.7.1` (peer-pinned to `@livekit/agents@1.7.1`) |
 | Model ID | `coda` |
-| Speaker / `lang` | `celeste` / `eng` — **English only** (see below) |
-| Endpoint | `wss://users-ws.rime.ai/ws3?...` (WebSocket streaming) |
-| Region | `us-west-2` (US West), via `wss://users-ws.rime.ai/ws3`; `RIME_BASE_URL` switches it to `wss://users-east-ws.rime.ai` (US East, `us-east-1`). Rime publishes only US West and US East WebSocket endpoints — there is no APAC region — so synthesis from our location is transpacific. |
+| Speaker / Language | `celeste` / `eng` — English only (see below) |
+| Endpoint | `wss://users-ws.rime.ai/ws3?...` (WebSocket streaming), US West (`us-west-2`) by default — `RIME_BASE_URL` switches to `wss://users-east-ws.rime.ai` (US East) |
 | Transport | Browser ↔ LiveKit WebRTC room ↔ agent worker ↔ Rime WebSocket |
-| Audio format | PCM, 24 000 Hz, mono |
-| Word timestamps | **yes** (verified live) — this is what drives the commit gate |
-| Auth | `RIME_API_KEY`, server-side only (`apps/agent/.env.local`), never in `apps/web` |
-| Catalog freshness | `pnpm --filter DD_agent test tts.preflight` re-checks `coda`/`celeste`/`eng` against Rime's live catalog before submitting (PS p.5) |
+| Audio format | PCM, 24,000 Hz, mono |
+| Word timestamps | **Yes** (verified live) — this is what drives the commit gate |
+| Auth | `RIME_API_KEY`, server-side only (`apps/agent/.env.local`), never exposed to the browser |
+| Catalog check | `pnpm --filter DD_agent test tts.preflight` verifies `coda`/`celeste`/`eng` against Rime's live voice catalog |
 
-**Why the plugin and not the Inference gateway:** the gateway's `RimeOptions` exposes no timestamp flag, so it never emits aligned word timings — and without those, the commit gate (the whole point of this project) has no signal to key off. The gateway path is kept in `apps/agent/src/tts.ts` as a disclosed, observable fallback (`TTS_PROVIDER=rime`): it works, but degrades commit granularity from per-sentence to per-turn since there's no word-level delivery evidence. `TTS_PROVIDER=fishaudio` is the pre-Rime baseline, kept only as a rollback path.
+**Why the direct plugin and not the Inference gateway:** the gateway's `RimeOptions` exposes no timestamp flag, so it never emits aligned word timings — and without those, the commit gate has no signal to key off. The gateway path is kept in `apps/agent/src/tts.ts` as a disclosed, observable fallback (`TTS_PROVIDER=rime`), at reduced commit granularity (per-turn instead of per-sentence).
 
-**English only, deliberately.** A `§0` spike found Rime Coda emits word-level timestamps *only* for English — Hindi and Japanese synthesise fine but return zero timed words. A multilingual mode was built and then removed rather than ship the commit gate — the guarantee this whole product rests on — in a degraded state for every language but one. See [`RIME_EVIDENCE.md §4a`](RIME_EVIDENCE.md) for the spike and the reasoning.
+**English only, deliberately.** Rime Coda emits word-level timestamps only for English (verified: 17/17 timed words in English vs. 0/0 in Hindi and Japanese at equivalent length). A multilingual mode was built and then removed rather than ship the commit gate — the mechanism the whole product rests on — in a degraded state for every other language. See [`RIME_EVIDENCE.md`](RIME_EVIDENCE.md) for the measurement.
 
 ## Architecture
 
@@ -56,14 +55,13 @@ browser mic → LiveKit room → DD_agent worker
                           browser: @xyflow/react renderer
 ```
 
-- **Generational Conversation Control** (`apps/agent/src/core/generation.ts`): every user turn gets a monotonic generation id. Interrupting fences the old one immediately — `AbortController` cancellation, plus a fencing check every async result re-validates before it's allowed to touch state. A backchannel ("mm-hmm", "yeah") is classified in `apps/agent/src/core/turn-taking.ts` and does **not** roll the generation — LiveKit's adaptive interruption keeps the agent talking through it, and so do we, so the mutation whose sentence is still being spoken is never orphaned.
-- **Heard-State Commit Gate** (`apps/agent/src/core/commit-gate.ts`): tools never mutate the canvas directly. They stage a mutation; it only reaches the canvas once Rime has actually delivered the sentence describing it (per word-level timestamps). Interrupt mid-sentence and the undelivered mutation is dropped, permanently. Every staged mutation ends in exactly one terminal state (committed or dropped) — `orphanedMutationIds` asserts silent orphaning is impossible, and the benchmark checks it on every scenario.
-- **Canvas Divergence Oracle** (`apps/agent/src/bench/oracle.ts`): independently re-derives the expected canvas from only the heard transcript and diffs it against the actual canvas — turns "state matches what was heard" into a pass/fail with a number.
-- **Layered layout** (`apps/agent/src/core/layout.ts`): the agent recomputes an ELK `layered` layout after every committed mutation and re-publishes node positions; the browser animates nodes to their new places. The agent stays the sole owner of positions.
-- **Word-synced forming nodes** (`{ kind: 'word' | 'staging' }` on the data channel): Rime's aligned word timestamps are forwarded to the browser, and a staged-but-uncommitted node renders "forming" (dashed, translucent) — firming up as the word naming it is spoken, going solid when its sentence commits it.
-- **Pronunciation harness** (`apps/agent/src/bench/pronunciation/`): 44 infrastructure terms rendered through the shipped `coda:celeste` WebSocket path in two spellings each, with `saveOovs` on. Clips + a wording table are committed; `pnpm --filter DD_agent pronunciation` regenerates.
-- **Ambient meeting mode** (`ADDRESSIVITY=true`, `apps/agent/src/core/{addressivity,proposals,ambient-listener}.ts`): every overheard utterance is scored on two independent axes — *addressed* (→ the agent speaks) and *salient* (→ it draws). A colleague's idea becomes a dashed **ghost** proposal, promoted to committed state only when a human confirms it or the agent narrates it, removed by a disagreement or a timeout. **Overheard speech can only ever create or destroy proposals — committed state changes only on addressed speech.**
-- **Pronunciation lexicon** (`apps/agent/src/core/lexicon.ts`): applied at the `ttsNode` tap, buffered to sentence boundaries, after the model and before Rime — the transcript, ledger and canvas keep real spellings. Both sides of the commit gate's anchor check run through the same lexicon so a respelled term (`nginx` → `engine ex`) never trips `anchor_mismatch`. The infra term list also feeds the STT `keyterms_prompt`.
+- **Generational conversation control** (`apps/agent/src/core/generation.ts`): every user turn gets a monotonic generation id. Interrupting fences the previous one immediately — `AbortController` cancellation, plus a re-validation check before any async result is allowed to touch state. Backchannels ("mm-hmm", "yeah") are classified separately and don't roll the generation, so the mutation whose sentence is still being spoken is never orphaned.
+- **Heard-state commit gate** (`apps/agent/src/core/commit-gate.ts`): tools never mutate the canvas directly. They stage a mutation; it only reaches the canvas once Rime has actually delivered the sentence describing it, per word-level timestamps. Interrupting mid-sentence drops the undelivered mutation permanently. Every staged mutation resolves to exactly one terminal state — committed or dropped, never orphaned.
+- **Canvas divergence oracle** (`apps/agent/src/bench/oracle.ts`): independently re-derives the expected canvas from only the heard transcript and diffs it against the actual canvas.
+- **Layered layout** (`apps/agent/src/core/layout.ts`): the agent recomputes an ELK `layered` layout after every committed mutation and re-publishes node positions; the browser animates nodes into place.
+- **Word-synced forming nodes**: Rime's aligned word timestamps are forwarded to the browser, and a staged-but-uncommitted node renders "forming" (dashed, translucent), going solid the instant its sentence commits.
+- **Pronunciation lexicon** (`apps/agent/src/core/lexicon.ts`): applied after the LLM and before Rime, so infrastructure terms (e.g. `nginx` → "engine ex") are pronounced correctly without ever touching the transcript, ledger, or canvas.
+- **Ambient meeting mode** (`ADDRESSIVITY=true`): every overheard utterance is scored on two independent axes — *addressed* (should the agent speak) and *salient* (should it draw). Overheard speech can only ever create or destroy proposals; committed canvas state changes only on speech addressed to the agent.
 
 ## Setup
 
@@ -74,7 +72,7 @@ cp apps/agent/.env.example apps/agent/.env.local
 cp apps/web/.env.example apps/web/.env.local
 ```
 
-Fill in both `.env.local` files: `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` (from https://cloud.livekit.io, or `lk cloud auth && lk app env -w -d apps/agent/.env.local`), matching `AGENT_NAME=DD_agent` in both. In `apps/agent/.env.local` also set `RIME_API_KEY` (from https://rime.ai's dashboard — the judged path, `TTS_PROVIDER=rime-plugin`, requires it).
+Fill in both `.env.local` files: `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` (from https://cloud.livekit.io), matching `AGENT_NAME=DD_agent` in both. In `apps/agent/.env.local`, also set `RIME_API_KEY` (from https://rime.ai's dashboard).
 
 ```bash
 pnpm dev            # runs the agent worker + the web frontend
@@ -84,17 +82,17 @@ Open http://localhost:3000, click **Start call**, and describe an architecture o
 
 ### What the agent can draw
 
-`addService` · `connectServices` (with `flow: sync|async` and `bidirectional`) · `replaceComponent` · `renameComponent` · `removeComponent` · `groupComponents` (a labelled boundary — VPC, trust boundary, bounded context) · `undoLast` (reverse the last committed change) · `clearCanvas` (one atomic wipe) · `exportDiagram` (a copyable Mermaid panel) · `explainComponent` (a real network lookup with a bundled fixture) · `describeArchitecture` (read the diagram back).
+`addService` · `connectServices` (with `flow: sync|async` and `bidirectional`) · `replaceComponent` · `renameComponent` · `removeComponent` · `groupComponents` (a labelled boundary — VPC, trust boundary, bounded context) · `undoLast` · `clearCanvas` · `exportDiagram` (a copyable Mermaid panel) · `explainComponent` (a real network lookup) · `describeArchitecture` (read the diagram back).
 
-Nodes get real vendor logos (Iconify) matched from their labels. `?sketch=1` on the URL flips node borders to a hand-drawn rough.js style (opt-in, reversible).
+Nodes get real vendor logos (Iconify) matched from their labels. `?sketch=1` on the URL flips node borders to a hand-drawn rough.js style.
 
 ### Demo/benchmark knobs
 
-- `SLOW_TOOL_MS` (default `0`) — artificial delay injected into staging tool calls, so an interruption race reproduces reliably. The **deterministic test fixture** the benchmark relies on — kept deliberately (§5.4). `explainComponent` is a *real* slow tool alongside it.
-- `CARTOGRAPH_BASELINE=true` — disables generation fencing and the commit gate entirely (mutations land the instant they're staged, regardless of whether the describing sentence was ever spoken). This is the naive-agent comparison mode; the HUD shows a **BASELINE MODE** badge when it's on.
-- `ADDRESSIVITY=true` (+ `ADDRESSIVITY_THRESHOLD`, default `0.6`) — ambient meeting mode: listen to *every* participant, not just the one `AgentSession` binds to. A second engineer's overheard speech can only ever create or destroy **proposals** (dashed "ghost" nodes); committed state still changes only on speech addressed to the agent. **Not yet validated with two live browser tabs** — the multi-participant STT path is best-effort.
-- `RIME_SAVE_OOVS=true` — log Rime's out-of-vocabulary words for a pronunciation-harness session (diagnostic, off in production). `RIME_BASE_URL` switches the Rime WebSocket region (US West default / US East).
-- `LAYOUT_DIRECTION` (`RIGHT` | `DOWN`) · `COMPONENT_LOOKUP=fixture` (skip the network for `explainComponent` on stage).
+- `SLOW_TOOL_MS` (default `0`) — artificial delay injected into staging tool calls, so an interruption race reproduces reliably.
+- `CARTOGRAPH_BASELINE=true` — disables generation fencing and the commit gate entirely, for a naive-agent comparison. The HUD shows a **BASELINE MODE** badge when on.
+- `ADDRESSIVITY=true` (+ `ADDRESSIVITY_THRESHOLD`, default `0.6`) — ambient meeting mode.
+- `RIME_SAVE_OOVS=true` — log Rime's out-of-vocabulary words for a pronunciation-harness session. `RIME_BASE_URL` switches the Rime WebSocket region.
+- `LAYOUT_DIRECTION` (`RIGHT` | `DOWN`) · `COMPONENT_LOOKUP=fixture` (skip the network for `explainComponent`).
 
 ### Benchmark
 
@@ -102,13 +100,11 @@ Nodes get real vendor logos (Iconify) matched from their labels. `?sketch=1` on 
 pnpm --filter DD_agent benchmark
 ```
 
-Runs 48 deterministic scenarios (a `toolDelay x interruptAt x corrections` matrix, plus 3 backchannel-during-narration cases) plus an explicit out-of-order case, twice each — once with fencing on, once with `CARTOGRAPH_BASELINE`'s naive behaviour — against an independent oracle. Also reports the orphaned-mutation count (always 0). No LiveKit, no audio, no LLM: pure TypeScript, reproducible on any machine. See [`RIME_EVIDENCE.md`](RIME_EVIDENCE.md) for the actual measured numbers.
+Runs 48 deterministic scenarios (a `toolDelay × interruptAt × corrections` matrix, plus backchannel-during-narration cases) plus an explicit out-of-order case, twice each — once with fencing on, once with `CARTOGRAPH_BASELINE`'s naive behaviour — against an independent oracle. No LiveKit, no audio, no LLM: pure TypeScript, reproducible on any machine. See [`RIME_EVIDENCE.md`](RIME_EVIDENCE.md) for measured numbers.
 
-Live interruption/recovery latency: `pnpm --filter DD_agent dev 2>&1 | tee /tmp/agent.log`, hold a call with ~20 real interruptions, then `pnpm --filter DD_agent latency < /tmp/agent.log` — see [`apps/agent/src/bench/live-latency.md`](apps/agent/src/bench/live-latency.md).
+Live interruption/recovery latency: `pnpm --filter DD_agent dev 2>&1 | tee /tmp/agent.log`, hold a call with real interruptions, then `pnpm --filter DD_agent latency < /tmp/agent.log` — see [`apps/agent/src/bench/live-latency.md`](apps/agent/src/bench/live-latency.md).
 
-Other harnesses: `pnpm --filter DD_agent pronunciation` (44 infra terms × 2 spellings through the shipped Rime path → clips + `bench/pronunciation/REPORT.md`); `pnpm --filter DD_agent addressivity` (hand-labelled §2 confusion matrix → `bench/ADDRESSIVITY_MATRIX.md`). The ambient safety invariant (scenarios 47/48) is asserted in `bench/ambient.test.ts`.
-
-**Comparative TTS evaluation** (required by the hackathon's benchmark-comparison rules, not this project's headline claim): `RIME_API_KEY=... pnpm --filter DD_agent tts-comparison` — blinded comparison of the shipped Rime path against Cartesia and Fish Audio (both via LiveKit Inference) across word alignment fidelity, latency, reliability under interruption, and pronunciation intelligibility, on a 15-term slice of the pronunciation fixture. Writes clips, a blinded set for a human listening pass, `results.csv`, and `REPORT.md` to `apps/agent/src/bench/tts-comparison/`. See [`RIME_EVIDENCE.md §4b`](RIME_EVIDENCE.md) for the full write-up, including a real, root-caused finding on why Rime is slower to first audio than Cartesia (and why that fix isn't shipped) and a disclosure of how much the LiveKit Inference gateway's own connection reliability shaped the numbers under this harness's call volume.
+Other harnesses: `pnpm --filter DD_agent pronunciation` (44 infra terms through the shipped Rime path → clips + `bench/pronunciation/REPORT.md`); `pnpm --filter DD_agent addressivity` (confusion matrix → `bench/ADDRESSIVITY_MATRIX.md`); `pnpm --filter DD_agent tts-comparison` (blinded comparison against Cartesia and Fish Audio → `bench/tts-comparison/REPORT.md`, see [`RIME_EVIDENCE.md`](RIME_EVIDENCE.md) for the summary).
 
 ## Third-party services
 
@@ -120,55 +116,27 @@ Other harnesses: `pnpm --filter DD_agent pronunciation` (44 infra terms × 2 spe
 
 The aesthetic layer copies component source (not a runtime dependency) from:
 
-- **[React Bits](https://reactbits.dev)** ([GitHub](https://github.com/DavidHDev/react-bits)) — MIT + Commons Clause. `BlurText`, `SplitFlapText`, `DotGrid` (`apps/web/components/`), each modified after copying — see the file headers/comments for what changed. Commons Clause restricts *reselling the library itself*, not using it in a product like this one.
+- **[React Bits](https://reactbits.dev)** ([GitHub](https://github.com/DavidHDev/react-bits)) — MIT + Commons Clause. `BlurText`, `SplitFlapText`, `DotGrid` (`apps/web/components/`), each modified after copying.
 
 ## Known limitations
 
-- Read-only/reversible tools only (brainstorm §26): no purchases, deletes, or emails — an irreversible external effect can't be meaningfully fenced. `clearCanvas` is destructive-looking but fully reversible (re-describe the diagram) and gated on its own sentence like any mutation.
-- The anchor-phrase mismatch guard is a warning surfaced on the event ledger, not a block: a genuine mismatch still commits, because a hard block would turn a monitoring feature into a live-demo failure.
-- Commit granularity is per-sentence, not per-word: a mutation lands once its whole describing sentence is confirmed delivered. The "forming node" reveal is per-word, but that's a *preview* of the in-progress sentence — the committed canvas still only ever reflects fully-heard sentences.
-- Commit timing is a race between a tool finishing its work and its sentence being spoken. It resolves correctly from either side — if the tool stages first the sentence commits it, if the sentence lands first the tool commits on the catch-up path — but the *visual* tightness (a node appearing exactly as its sentence ends, not a beat later) depends on tools being fast, which is why `SLOW_TOOL_MS` defaults to `0` outside the interruption stress demo.
-- The 48 generated benchmark scenarios plus one hand-scripted out-of-order case are not a production traffic distribution — they exercise the specific race the commit gate is built to close, not general robustness.
-- A backchannel is classified lexically (`core/turn-taking.ts`) with a 2-word floor matching `turnHandling.interruption.minWords`. A single-word command that isn't in the hard-interrupt list ("stop", "wait", "no", "actually", …) — e.g. "bigger" — is treated as a backchannel and won't fence until the user says more.
-- Live interruption/recovery latency is **measured across two independent real sessions** — fence ~2.5s median / 4.3-4.6s p95, recovery ~3.7-4.0s median / 6.2-7.3s p95, medians agreeing within ~1% between runs. Recovery latency (LLM + TTS round-trip) is slower than we'd like and is a live optimization target, not something tuned away before reporting. Full tables and disclosed caveats in `apps/agent/src/bench/live-latency.md`.
-- **"Queued Rime audio stops promptly" is measured directly**, not assumed from the architecture: correlating `generation_cancelled` with the LiveKit SDK's own playout-stopped confirmation gives median 13ms / p95 25ms / max 138ms (n=7 — only turns where the agent was genuinely mid-speech at cancellation). See `RIME_EVIDENCE.md` §4.
+- Read-only/reversible tools only: no purchases, deletes, or emails. `clearCanvas` is destructive-looking but fully reversible and gated on its own sentence like any mutation.
+- Commit granularity is per-sentence, not per-word: a mutation lands once its whole describing sentence is confirmed delivered. The "forming node" reveal is per-word, but that's a preview of the in-progress sentence.
+- With a slow tool, a mutation commits when the tool completes rather than at the instant its sentence ends — heard-correct, but not always visually instantaneous. `SLOW_TOOL_MS` defaults to `0` outside the interruption stress demo.
+- The 48 generated benchmark scenarios exercise the specific race the commit gate is built to close, not general robustness at large scale.
+- A backchannel is classified lexically with a 2-word floor. A single-word command outside the hard-interrupt list (e.g. "bigger") is treated as a backchannel and won't fence until the user says more.
+- Live interruption/recovery latency, measured across two independent real sessions: fence ~2.5s median / 4.3-4.6s p95, recovery ~3.7-4.0s median / 6.2-7.3s p95. Recovery latency (LLM + TTS round-trip) is a live optimization target. Full tables in `apps/agent/src/bench/live-latency.md`.
+- Queued Rime audio stops within tens of milliseconds of a fencing decision (median 13ms, p95 25ms, n=7 real interruptions) — measured directly against the LiveKit SDK's own playback-stopped confirmation, not assumed from the architecture. See `RIME_EVIDENCE.md`.
 - Single-room scale; no multi-agent handoffs, no telephony.
-- **English only** — a multilingual mode was built and then removed on evidence. Rime Coda emits the per-sentence delivery signal the commit gate needs *only* for English (the §0 spike: 17 timed words in English, 0 in Hindi and Japanese). Shipping the guarantee degraded for every other language was judged worse than scoping out. The STT runs `language: 'en'`. Full spike and reasoning in [`RIME_EVIDENCE.md §4a`](RIME_EVIDENCE.md).
-- **Ambient meeting mode (§2) is behind `ADDRESSIVITY=true` and unvalidated live.** The classifier (prefilter + optional model), the ghost/proposal store, the safety invariant, and scenarios 47/48 are all unit-tested and audio-independent. The one piece that needs a two-browser-tab check is the multi-participant STT subscription in `core/ambient-listener.ts` — LiveKit Agents 1.7.1 binds `AgentSession` to a single participant, so a second engineer needs a separate STT stream off the raw track, and that plumbing has not been exercised with real audio. Measured classifier F1 (synthetic fixture): salient 0.92, addressed precision 1.0 / recall 0.30 — the prefilter never false-triggers the agent into speaking; recall is the model layer's job.
-- Ghost labels are extracted from the overheard utterance heuristically (`ghostLabelFrom` in `main.ts`), not by a planner pass — cheaper for frequent ambient chatter, at the cost of occasionally awkward proposal names. A proposal is low-stakes by design.
-- **This submission does not claim multi-user collaboration.** Cartograph is presented as a single-operator tool — one person, thinking out loud. `publishData` broadcasts to every room participant, so a second viewer would likely see the same canvas, but that's untested and nothing in the pitch depends on it.
-- A real reliability bug was found and fixed during validation: tools referencing an *existing* component (`connectServices`, `renameComponent`, `removeComponent`, `replaceComponent`, `groupComponents`) used to hash whatever label the LLM said directly into a node id. A natural paraphrase — "connect the gateway to the auth service" for a node actually added as "API Gateway," or "the database" for one named "Postgres" — produced a dangling reference: the mutation staged and reported success, but nothing rendered. `CanvasStore.resolveId` now resolves spoken labels against the real canvas (exact id → case-insensitive label → unambiguous substring → generic kind-noun when there's exactly one match → token overlap), falling back to the old behaviour only when nothing resolves unambiguously. Regression-tested against the exact failing transcripts observed live.
+- **English only** — see the Rime disclosure above and `RIME_EVIDENCE.md` for the measurement behind it.
+- Ambient meeting mode (`ADDRESSIVITY=true`) is unvalidated with two live browser tabs: the classifier, proposal store, and safety invariant are unit-tested and audio-independent, but the multi-participant STT path has not been exercised with real audio. Classifier F1 on a synthetic fixture: salient 0.92, addressed precision 1.0 / recall 0.30.
+- This submission does not claim multi-user collaboration. Cartograph is presented as a single-operator tool — one person, thinking out loud.
 - `apps/web`'s text-chat input is not wired to trigger agent turns in this starter — voice is the only input path exercised end-to-end.
-- `apps/web`'s ESLint config (`next lint` + `.eslintrc.json`) is incompatible with the installed ESLint 9 and errors out; `pnpm --filter web check-types` is clean. Pre-existing; a flat-config migration is out of scope here.
-- **Rime is measurably slower to first audio than Cartesia** (~1.3-1.7s vs ~450-600ms) — root-caused, not just reported: the vendored `@livekit/agents-plugin-rime` opens a fresh WebSocket per utterance with no connection reuse, while Cartesia's client library pools and prewarms connections. A protocol-level test (not shipped) confirmed Rime's own server tolerates connection reuse and would recover most of the gap (~350ms once warm) — real and evidenced, but deliberately not fixed in the shipped agent: doing so means reimplementing the plugin's message protocol on the exact path the commit gate's word timestamps depend on, a disproportionate risk to the actual headline claim this close to submission. Full numbers and reasoning in `RIME_EVIDENCE.md §4`.
-- The comparative TTS evaluation (`RIME_EVIDENCE.md §4b`) is one run, not a controlled benchmark: ~75 back-to-back calls surfaced real, load-dependent reliability differences in `agent-gateway.livekit.cloud` itself (Rime 0% failures since it bypasses that gateway; Cartesia 75%; Fish Audio 100%, unconditionally, across every test run in this investigation) that shaped the latency/reliability/intelligibility numbers as much as the models did — disclosed in the report rather than hidden behind clean-looking `-1`s and blank transcripts. The PS's blinded human-listening pass is prepared (`blind/` + `blind-key.json`) but left as a manual step.
-
-## Submission checklist (configuration hygiene — PS p.2 / p.5, pass/fail)
-
-**Config example hygiene** — audited on `final`: the only committed `.env*` files are `apps/agent/.env.example` and `apps/web/.env.example`, every secret value in them is empty, `RIME_API_KEY` is referenced server-side only, and no `NEXT_PUBLIC_*` variable carries a credential. `.env.local` is gitignored in both apps. Keep it so: never a real value in an `.env.example`, never a credential behind `NEXT_PUBLIC_*`.
-
-**Before submitting — re-verify the Rime config against the live catalog** (PS p.5: *"use the current catalog at submission time rather than copying a stale speaker list"*). The shipped model/voice/language is a committed default (`RIME_MODEL` / `RIME_VOICE` in `.env.example`, `LANG` in `src/tts.ts`):
-
-```bash
-pnpm --filter DD_agent test tts.preflight
-```
-
-Skips (does not fail) when offline, so it is safe in `pnpm test` — run it deliberately before the deadline. Last verified: 2026-09-08 — `coda` / `celeste` / `eng` present.
-
-**Before recording the demo — a human must scan the screen for secrets** (PS p.5 covers *"screenshots, recordings"*; a repo scan can't catch this):
-
-- [ ] No terminal on screen has printed env vars (`env`, `printenv`, a startup log echoing config)
-- [ ] No editor tab or file tree shows `.env.local` open or its contents
-- [ ] The agent worker's boot lines on screen carry no key
-- [ ] Browser devtools, if visible, show no `Authorization` request headers
-- [ ] The HUD shows only the provider description (`Rime coda:celeste (WebSocket, PCM 24kHz mono, us-west-2)`), no key material
-- [ ] After recording: scrub through once at speed watching for key-shaped text
-
-If a key appears in a take, **re-record — do not blur it.** A blur in a video file is not always a removal and the underlying frames may survive re-encoding.
+- Rime reaches first audio slower than some alternative providers in the LiveKit Inference ecosystem (see `RIME_EVIDENCE.md`) — a known, disclosed, and root-caused gap that is not fixed in this submission because doing so would mean touching the exact code path the commit gate's word timestamps depend on, this close to submission.
 
 ## Failure behaviour
 
-- **Rime unreachable at construction** (`TTS_PROVIDER=rime-plugin` with no `RIME_API_KEY`): fails fast and loudly at boot — the plugin throws, the worker never starts serving jobs.
-- **Rime failing mid-session**: surfaces as a TTS synthesis error in the agent log; the session does not silently fall back to another provider. The PS makes a submission ineligible if Rime is not the primary spoken output, so no silent non-Rime fallback is wired in. The disclosed fallback (`TTS_PROVIDER=rime`, the Inference gateway) is a deploy-time switch, not an automatic runtime failover, and the HUD's active-provider readout would show it if it were active.
+- **Rime unreachable at construction** (no `RIME_API_KEY`): fails fast and loudly at boot — the plugin throws, the worker never starts serving jobs.
+- **Rime failing mid-session**: surfaces as a TTS synthesis error in the agent log; the session does not silently fall back to another provider, so Rime always stays the primary spoken output. The disclosed fallback (`TTS_PROVIDER=rime`, the Inference gateway) is a deploy-time switch, not an automatic runtime failover.
 - **Tool timeout beyond the delay budget**: not separately bounded — a stuck tool call simply never resolves; the generation fence still protects the canvas if the user moves on before it does.
-- **LiveKit disconnect/reconnect**: handled by the LiveKit Agents SDK's own reconnection logic; Cartograph's state (`GenerationManager`, `CanvasStore`) lives in the worker process and is not persisted across a worker restart.
+- **LiveKit disconnect/reconnect**: handled by the LiveKit Agents SDK's own reconnection logic; Cartograph's state lives in the worker process and is not persisted across a worker restart.
