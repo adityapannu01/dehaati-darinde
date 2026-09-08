@@ -223,3 +223,7 @@ ehthumbs.db
 
 # GitHub CLI
 .github/personal-instructions.md
+
+# TTS comparison blind-test answer key — kept local until the listening pass
+# is actually done, so the mapping isn't trivially visible before judging.
+src/bench/tts-comparison/blind-key.json

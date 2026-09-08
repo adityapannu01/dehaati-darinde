@@ -19,6 +19,7 @@
     "pronunciation": "node src/bench/pronunciation/run.ts",
     "latency": "node src/bench/latency.ts",
     "audit": "node src/bench/audit-session.ts",
+    "tts-comparison": "node src/bench/tts-comparison/run.ts",
     "addressivity": "node src/bench/addressivity-fixture.ts"
   },
   "engines": {
